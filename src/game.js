@@ -1,6 +1,6 @@
 // ============ 游戏主逻辑 ============
 import * as THREE from 'three';
-import { MAPS, TOWERS, HEROES, CARDS, ENEMIES, MAX_HEROES, buildWave, hpScale, TILE } from './data.js';
+import { MAPS, TOWERS, HEROES, CARDS, ENEMIES, MAX_HEROES, buildWave, hpScale, TILE, schoolTiers, RELICS, RELIC_IDS, SCHOOLS, SKILL_MAX, skillReq, rankCd } from './data.js';
 import { World } from './world.js';
 import { FX, rand } from './fx.js';
 import { Enemy, Tower, Unit, Projectile } from './entities.js';
@@ -43,7 +43,15 @@ export class Game {
     this.spawnQueue = [];
     this.waveTime = 0;
     this.drawTimer = 0;
-    this.stats = { kills: 0, cardsPlayed: 0, goldEarned: 0, leaks: 0 };
+    this.stats = { kills: 0, cardsPlayed: 0, goldEarned: 0, leaks: 0, maxCombo: 0 };
+    // 流派羁绊 / 遗物 / 连携
+    this.tiers = schoolTiers(deck);
+    this.relics = [];
+    this.combo = { school: null, n: 0, until: 0 };
+    this.lastCard = null;
+    this.soulKills = 0;
+    this.aimSkill = -1;
+    if (this.tiers.arcane >= 1) this.maxMana += 2;
     // 卡组
     this.deck = deck.slice();
     this.drawPile = shuffle(this.deck.slice());
@@ -68,8 +76,15 @@ export class Game {
     this.ui = new GameUI(this);
     this.drawCards(4, true);
     this.ui.renderAll();
-    this.ui.banner(`${this.map.name}`, '#ffffff', '布置防御塔，召唤英雄，然后开始第一波！');
     audio.startMusic('calm');
+    // 开局选择一件遗物
+    this.state = 'reward';
+    this.ui.showRelicChoice(this.rollRelics(), '选择一件初始遗物', (id) => {
+      if (id) this.addRelic(id);
+      this.state = 'build';
+      this.ui.banner(`${this.map.name}`, '#ffffff', '布置防御塔，召唤英雄，然后开始第一波！');
+      this.ui.refresh(true);
+    });
   }
 
   // ---------- 辅助对象 ----------
@@ -100,8 +115,61 @@ export class Game {
     this.moveMarker = new THREE.Mesh(mg, new THREE.MeshBasicMaterial({ color: 0x66ff88, transparent: true, depthWrite: false }));
     this.moveMarker.visible = false;
     this.scene.add(this.moveMarker);
+    // 技能施法距离圈
+    const cg = new THREE.RingGeometry(0.985, 1, 96);
+    cg.rotateX(-Math.PI / 2);
+    this.castRing = new THREE.Mesh(cg, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }));
+    this.castRing.visible = false;
+    this.scene.add(this.castRing);
+    // 集火标记
+    const fgm = new THREE.RingGeometry(0.8, 1, 4, 1);
+    fgm.rotateX(-Math.PI / 2);
+    this.focusMarker = new THREE.Mesh(fgm, new THREE.MeshBasicMaterial({ color: 0xff4a3a, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.focusMarker.visible = false;
+    this.scene.add(this.focusMarker);
+    this.focusEnemy = null;
     this.ghost = null;
     this.ghostMat = new THREE.MeshBasicMaterial({ color: 0x88ffaa, transparent: true, opacity: 0.4, depthWrite: false });
+  }
+
+  // ---------- 遗物 & 羁绊修正 ----------
+  has(r) { return this.relics.includes(r); }
+  addRelic(id) {
+    if (this.has(id)) return;
+    this.relics.push(id);
+    if (id === 'manacrystal') { this.maxMana += 2; this.mana = Math.min(this.maxMana, this.mana + 3); }
+    if (id === 'stoneheart') { this.maxLives += 6; this.lives += 6; }
+    if (id === 'prophecy') this.maxHand += 1;
+    const b = this.world.basePos;
+    this.fx.sigil(b, 0xffd257, 3.5, 1.6);
+    this.fx.pillar(b, 0xffd257, 1.6, 18, 1.2);
+    audio.play('upgrade');
+    this.ui.toast(`获得遗物：${RELICS[id].icon} ${RELICS[id].name}`);
+    this.ui.renderRelics();
+  }
+  rollRelics() {
+    const pool = RELIC_IDS.filter((r) => !this.has(r));
+    shuffle(pool);
+    return pool.slice(0, 3);
+  }
+  get burnMul() { return (this.tiers.fire >= 1 ? 1.5 : 1) * (this.has('emberheart') ? 2 : 1); }
+  get freezeMul() { return this.tiers.frost >= 1 ? 1.3 : 1; }
+  get chainBonus() { return (this.tiers.storm >= 1 ? 2 : 0) + (this.has('stormtotem') ? 3 : 0); }
+  get teslaBonus() { return (this.tiers.storm >= 1 ? 1 : 0) + (this.has('stormtotem') ? 2 : 0); }
+  get towerHasteMul() { return (this.time < this.buffs.towerHaste ? 1.6 : 1) * (this.has('warbanner') ? 1.15 : 1); }
+  get healMul() { return this.tiers.holy >= 1 ? 1.5 : 1; }
+  get summonMul() { return this.tiers.nature >= 1 ? 1.4 : 1; }
+  get summonDur() { return this.tiers.nature >= 2 ? 1.5 : 1; }
+  get comboMax() { return this.has('focus') ? 5 : 3; }
+  get comboWindow() { return this.has('focus') ? 12 : 8; }
+  towerCost(type, lvl) { return Math.round(TOWERS[type].levels[lvl].cost * (this.has('blueprint') ? 0.85 : 1)); }
+  // 卡牌伤害倍率（流派 2 阶 + 遗物 + 连携）
+  cardPower(id) {
+    const c = CARDS[id];
+    let m = this.has('lens') ? 1.2 : 1;
+    if ((c.school === 'fire' && this.tiers.fire >= 2) || (c.school === 'storm' && this.tiers.storm >= 2)) m *= 1.3;
+    if (this.combo.school === c.school && this.combo.n >= 2) m *= 1 + 0.15 * (this.combo.n - 1);
+    return m;
   }
 
   // ---------- 敌人工具 ----------
@@ -132,10 +200,23 @@ export class Game {
     let a = amount;
     if (dtype === 'phys') a *= 1 - e.def.armor;
     else if (dtype === 'magic') a *= 1 - e.def.mres;
+    const frozen = e.isFrozen(this.time);
+    let crit = false;
+    if (src && src.card) {
+      a *= src.mul || 1;
+      if (silent && this.tiers.nature >= 2) a *= 1.4;
+    } else if (src && src.kind === 'hero') {
+      if (src.id === 'pyro' && this.time < e.burnUntil) a *= 1.2;
+      if (src.id === 'frost' && frozen) a *= 1.4;
+    }
+    if (frozen && this.tiers.frost >= 2) a *= 1.25;
+    if (e.sanctified > this.time) a *= 1.2;
+    if (src && src.critNext) { a *= 2.5; crit = true; src.critNext = false; }
     e.hp -= a;
     if (!silent) {
       e.flashT = 0.12;
-      if (a >= 90) this.ui.floatText(e.centerClone().setY(e.pos.y + 2), Math.round(a), src === 'card' ? '#ffcc66' : '#ffffff', a >= 300);
+      if (crit) this.ui.floatText(e.centerClone().setY(e.pos.y + 2.2), `💥${Math.round(a)}`, '#7affaa', true);
+      else if (a >= 90) this.ui.floatText(e.centerClone().setY(e.pos.y + 2), Math.round(a), src && src.card ? '#ffcc66' : '#ffffff', a >= 300);
     }
     if (src && src.gainXp) src.gainXp(a * 0.05);
     if (e.hp <= 0) this.killEnemy(e, src);
@@ -146,8 +227,14 @@ export class Game {
     const c = e.centerClone();
     e.destroy();
     this.stats.kills++;
-    const gold = Math.round(e.def.gold * (1 + 0.04 * (this.wave - 1)));
+    const gold = Math.round(e.def.gold * (1 + 0.04 * (this.wave - 1)) * (this.has('greedring') ? 1.25 : 1));
     this.addGold(gold, true);
+    if (this.has('soulreaper') && ++this.soulKills >= 15) {
+      this.soulKills = 0;
+      this.mana = Math.min(this.maxMana, this.mana + 1);
+      this.fx.trail(c, 0x7ab0ff, 1.5, 0.8, 0, 3);
+    }
+    if (this.focusEnemy === e) this.focusEnemy = null;
     if (src && src.kills !== undefined) src.kills++;
     const col = e.def.color;
     if (e.boss) {
@@ -177,12 +264,23 @@ export class Game {
   }
 
   slowEnemy(e, mul, dur) {
+    dur *= this.freezeMul;
     if (this.time > e.slowUntil || mul < e.slowMul) e.slowMul = mul;
     e.slowUntil = Math.max(e.slowUntil, this.time + dur);
   }
-  freezeEnemy(e, dur) { e.frozenUntil = Math.max(e.frozenUntil, this.time + dur); }
-  stunEnemy(e, dur) { e.stunUntil = Math.max(e.stunUntil, this.time + (e.boss ? dur * 0.4 : dur)); }
-  burnEnemy(e, dps, dur) { e.burnDps = Math.max(e.burnDps * (this.time < e.burnUntil ? 1 : 0), dps); e.burnUntil = this.time + dur; }
+  freezeEnemy(e, dur) {
+    dur = dur * this.freezeMul + (this.has('frostcore') ? 0.8 : 0);
+    e.frozenUntil = Math.max(e.frozenUntil, this.time + dur);
+  }
+  stunEnemy(e, dur) {
+    if (this.tiers.storm >= 2) dur += 0.5;
+    e.stunUntil = Math.max(e.stunUntil, this.time + (e.boss ? dur * 0.4 : dur));
+  }
+  burnEnemy(e, dps, dur) {
+    dps *= this.burnMul;
+    e.burnDps = Math.max(e.burnDps * (this.time < e.burnUntil ? 1 : 0), dps);
+    e.burnUntil = this.time + dur;
+  }
 
   spawnProjectile(o) { this.projectiles.push(new Projectile(this, o)); }
   later(t, fn) { this.timers.push({ t, fn }); }
@@ -247,12 +345,30 @@ export class Game {
     const id = this.hand[i];
     const card = CARDS[id];
     if (this.mana < card.cost) return false;
+    // 连携：连续打出同流派卡牌
+    const prevCombo = { ...this.combo };
+    if (card.school) {
+      if (this.combo.school === card.school && this.time < this.combo.until) this.combo.n = Math.min(this.comboMax, this.combo.n + 1);
+      else { this.combo.school = card.school; this.combo.n = 1; }
+      this.combo.until = this.time + this.comboWindow;
+    }
     const ok = castCard(this, id, pos, tower);
-    if (ok === false) { audio.play('error'); return false; }
+    if (ok === false) { this.combo = prevCombo; audio.play('error'); return false; }
     this.mana -= card.cost;
     this.hand.splice(i, 1);
     this.discard.push(id);
     this.stats.cardsPlayed++;
+    if (id !== 'echo') this.lastCard = id;
+    if (card.school && this.combo.n >= 2) {
+      this.stats.maxCombo = Math.max(this.stats.maxCombo, this.combo.n);
+      const sc = SCHOOLS[card.school];
+      this.ui.comboFx(this.combo.n, sc);
+    }
+    if (this.has('echostone') && card.cost > 0 && Math.random() < 0.2) {
+      this.mana = Math.min(this.maxMana, this.mana + card.cost);
+      this.ui.toast(`🔔 回响之石：返还 ${card.cost} 法力`);
+    }
+    if (this.has('spellblade')) for (const u of this.units) if (u.kind === 'hero') u.cds = u.cds.map((c) => Math.max(0, c - 1.5));
     this.pendingCard = -1;
     this.targetRing.visible = false;
     this.ui.cardCastFx(card);
@@ -299,13 +415,49 @@ export class Game {
 
   clampUnit(u) { u.clampToMap(); u.anchor.copy(u.pos); }
 
-  castHeroSkill(idx) {
+  canCast(h, idx, quiet = false) {
+    if (!h || !h.alive || this.state === 'over') return false;
+    const err = (m) => { if (!quiet) { audio.play('error'); if (m) this.ui.toast(m); } return false; };
+    if (h.ranks[idx] <= 0) return err(idx === 2 ? `终极技能需要英雄等级 3 并学习（Shift+${'QER'[idx]}）` : '尚未学习该技能');
+    if (h.cds[idx] > 0) return err();
+    if (this.time < h.stunUntil) return err('英雄被眩晕了！');
+    return true;
+  }
+
+  castHeroSkill(idx, target) {
     const h = this.selectedHero;
-    if (!h || !h.alive || this.state === 'over') return;
-    if (h.cds[idx] > 0) { audio.play('error'); return; }
-    if (this.time < h.stunUntil) { audio.play('error'); this.ui.toast('英雄被眩晕了！'); return; }
-    castSkill(this, h, idx, this.mouseValid ? this.mouseWorld.clone() : h.pos.clone());
-    h.cds[idx] = HEROES[h.id].skills[idx].cd;
+    this.aimSkill = -1;
+    if (!this.canCast(h, idx)) return;
+    const tp = target || (this.mouseValid ? this.mouseWorld.clone() : h.pos.clone());
+    castSkill(this, h, idx, tp);
+    h.cds[idx] = HEROES[h.id].skills[idx].cd * rankCd(h.ranks[idx]);
+    // 施法法阵
+    this.fx.sigil(h.pos, HEROES[h.id].color, 1.4, 0.7, { spin: 4 });
+    this.ui.renderHeroes();
+  }
+
+  // 进入技能瞄准模式（按住技能键或点击技能按钮）
+  beginAim(idx) {
+    const h = this.selectedHero;
+    if (!this.canCast(h, idx)) return;
+    this.cancelModes();
+    this.aimSkill = idx;
+    audio.play('click', 0.6);
+  }
+
+  learnSkill(h, idx) {
+    if (!h) return;
+    const r = h.ranks[idx];
+    if (h.skillPts <= 0) { audio.play('error'); this.ui.toast('没有可用的技能点（英雄升级获得）'); return; }
+    if (r >= SKILL_MAX[idx]) { audio.play('error'); this.ui.toast('该技能已满级'); return; }
+    const req = skillReq(idx, r + 1);
+    if (h.level < req) { audio.play('error'); this.ui.toast(`需要英雄等级 ${req}`); return; }
+    h.ranks[idx]++;
+    h.skillPts--;
+    audio.play('levelup', 0.7);
+    this.fx.sigil(h.pos, 0xffd257, 1.8, 0.9, { spin: 6 });
+    this.fx.burst(h.pos.clone().setY(1.2), { count: 30, color: 0xffd257, intensity: 3, speed: 3, life: 0.8, size: 0.5, up: 2 });
+    this.ui.floatText(h.pos.clone().setY(3), `${HEROES[h.id].skills[idx].name} → ${h.ranks[idx]} 级`, '#ffd257');
     this.ui.renderHeroes();
   }
 
@@ -326,24 +478,25 @@ export class Game {
   tryBuild(gx, gz) {
     const def = TOWERS[this.buildType];
     if (!this.world.canBuild(gx, gz)) { audio.play('error'); return; }
-    if (this.gold < def.levels[0].cost) { audio.play('error'); this.ui.toast('金币不足！'); return; }
-    // 不允许站着英雄的格子？允许
-    this.gold -= def.levels[0].cost;
+    const cost = this.towerCost(this.buildType, 0);
+    if (this.gold < cost) { audio.play('error'); this.ui.toast('金币不足！'); return; }
+    this.gold -= cost;
     const t = new Tower(this, this.buildType, gx, gz);
+    t.spent = cost;
     this.world.cells[gz][gx].tower = t;
     this.towers.push(t);
     audio.play('build');
     this.fx.burst(t.pos.clone().setY(0.3), { count: 25, color: 0xb8a888, smoke: true, speed: 3, flat: true, life: 0.8, size: 1.2, sizeEnd: 2, alpha: 0.6 });
     this.fx.burst(t.pos.clone().setY(1), { count: 20, color: 0xffe8a0, intensity: 2, speed: 4, life: 0.6, size: 0.5, up: 2 });
-    if (!this.keys.Shift || this.gold < def.levels[0].cost) this.cancelModes();
+    if (!this.keys.Shift || this.gold < cost) this.cancelModes();
   }
 
   upgradeTower(t) {
     if (t.level >= 2) return;
-    const cost = t.def.levels[t.level + 1].cost;
+    const cost = this.towerCost(t.type, t.level + 1);
     if (this.gold < cost) { audio.play('error'); this.ui.toast('金币不足！'); return; }
     this.gold -= cost;
-    t.upgrade();
+    t.upgrade(cost);
     audio.play('upgrade');
     this.fx.pillar(t.pos, 0xffd257, 1.2, 12, 0.8);
     this.fx.burst(t.pos.clone().setY(1.5), { count: 40, color: 0xffd257, intensity: 3, speed: 5, life: 0.8, size: 0.6, up: 2 });
@@ -367,6 +520,7 @@ export class Game {
   cancelModes() {
     this.buildType = null;
     this.pendingCard = -1;
+    this.aimSkill = -1;
     if (this.ghost) { this.scene.remove(this.ghost); this.ghost = null; }
     this.targetRing.visible = false;
     this.ui && this.ui.updateBuildButtons();
@@ -398,16 +552,30 @@ export class Game {
   }
 
   endWave() {
-    const bonus = 30 + this.wave * 4;
+    const bonus = 30 + this.wave * 4 + (this.has('alchemy') ? 30 : 0);
     this.addGold(bonus);
+    if (this.has('alchemy')) this.mana = Math.min(this.maxMana, this.mana + 2);
     audio.play('coin');
     audio.startMusic('calm');
     if (this.wave >= this.map.waves) { this.gameOver(true); return; }
     this.ui.toast(`第 ${this.wave} 波完成！获得 ${bonus} 金币`);
     this.state = 'reward';
     this.cancelModes();
-    this.ui.showReward(this.rollRewards(), (id) => {
-      if (id) {
+    const done = () => { this.state = 'build'; this.ui.refresh(true); };
+    if (this.wave % 5 === 0) {
+      // 首领波：遗物奖励
+      this.ui.showRelicChoice(this.rollRelics(), `✨ 击败首领！选择一件遗物`, (id) => {
+        if (id) this.addRelic(id);
+        else { this.addGold(60); this.ui.toast('跳过遗物，获得 60 金币'); }
+        done();
+      }, '跳过（+60 金币）');
+      return;
+    }
+    this.ui.showReward(this.rollRewards(), (id, removeId) => {
+      if (removeId) {
+        this.removeFromDeck(removeId);
+        this.ui.toast(`「${CARDS[removeId].name}」已从本局卡组移除`);
+      } else if (id) {
         this.deck.push(id);
         this.discard.push(id);
         this.app.unlockCard(id);
@@ -416,18 +584,52 @@ export class Game {
         this.addGold(35);
         this.ui.toast('跳过奖励，获得 35 金币');
       }
-      this.state = 'build';
-      this.ui.refresh(true);
+      this.refreshTiers();
+      done();
     });
+  }
+
+  // 本局精简卡组：从卡组与牌堆中移除一张
+  removeFromDeck(id) {
+    const i = this.deck.indexOf(id);
+    if (i < 0) return;
+    this.deck.splice(i, 1);
+    for (const pile of [this.drawPile, this.discard, this.hand]) {
+      const j = pile.indexOf(id);
+      if (j >= 0) { pile.splice(j, 1); break; }
+    }
+    this.ui.renderHand();
+  }
+
+  refreshTiers() {
+    const old = this.tiers;
+    this.tiers = schoolTiers(this.deck);
+    const arcaneDelta = (this.tiers.arcane >= 1 ? 2 : 0) - (old.arcane >= 1 ? 2 : 0);
+    this.maxMana += arcaneDelta;
+    this.mana = Math.min(this.mana, this.maxMana);
+    for (const k of Object.keys(this.tiers)) {
+      if (this.tiers[k] > old[k]) this.ui.toast(`${SCHOOLS[k].icon} ${SCHOOLS[k].name}羁绊 ${this.tiers[k]} 阶激活：${SCHOOLS[k].tiers[this.tiers[k] - 1].desc}`);
+    }
+    this.ui.renderSynergies();
   }
 
   rollRewards() {
     const ids = Object.keys(CARDS);
     const out = [];
     const epicW = 6 + this.wave * 0.8;
-    while (out.length < 3) {
+    const legW = this.wave >= 6 ? 2 + (this.wave - 6) * 0.6 : 0;
+    // 偏好卡组主流派：一张奖励优先从卡组最多的流派中抽取
+    const counts = {};
+    for (const id of this.deck) { const sc = CARDS[id].school; if (sc) counts[sc] = (counts[sc] || 0) + 1; }
+    const main = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+    if (main && Math.random() < 0.75) {
+      const pool = ids.filter((id) => CARDS[id].school === main && CARDS[id].rarity !== 'legendary' && (CARDS[id].rarity !== 'epic' || Math.random() * 100 < epicW * 2));
+      if (pool.length) out.push(pool[Math.floor(Math.random() * pool.length)]);
+    }
+    let guard = 0;
+    while (out.length < 3 && guard++ < 200) {
       const r = Math.random() * 100;
-      const rar = r < epicW ? 'epic' : r < epicW + 30 ? 'rare' : 'common';
+      const rar = r < legW ? 'legendary' : r < legW + epicW ? 'epic' : r < legW + epicW + 30 ? 'rare' : 'common';
       const pool = ids.filter((id) => CARDS[id].rarity === rar && !out.includes(id));
       if (!pool.length) continue;
       out.push(pool[Math.floor(Math.random() * pool.length)]);
@@ -458,6 +660,27 @@ export class Game {
 
   onPointerMove(e) { this.updateMouse(e.clientX, e.clientY); }
 
+  pickEnemy() {
+    let best = null, bd = 1.6 * 1.6;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const d = (e.pos.x - this.mouseWorld.x) ** 2 + (e.pos.z - this.mouseWorld.z) ** 2 - (e.boss ? 2 : 0);
+      if (d < bd) { bd = d; best = e; }
+    }
+    return best;
+  }
+
+  focusOrder(e) {
+    const h = this.selectedHero;
+    if (!h || !h.alive) return false;
+    h.focus = e;
+    h.moveTarget = null;
+    this.focusEnemy = e;
+    this.fx.ring(e.pos, 0xff5a3a, 1.5, 0.35);
+    audio.play('click');
+    return true;
+  }
+
   pickHero() {
     let best = null, bd = 1.8 * 1.8;
     for (const u of this.units) {
@@ -474,11 +697,14 @@ export class Game {
     if (!this.mouseValid) return;
     const [gx, gz] = this.world.toGrid(this.mouseWorld.x, this.mouseWorld.z);
     if (e.button === 2) {
-      if (this.buildType || this.pendingCard >= 0) { this.cancelModes(); return; }
+      if (this.buildType || this.pendingCard >= 0 || this.aimSkill >= 0) { this.cancelModes(); return; }
+      const en = this.pickEnemy();
+      if (en && this.focusOrder(en)) return;
       this.orderMove();
       return;
     }
     if (e.button !== 0) return;
+    if (this.aimSkill >= 0) { this.castHeroSkill(this.aimSkill, this.mouseWorld.clone()); return; }
     if (this.pendingCard >= 0) {
       const card = CARDS[this.hand[this.pendingCard]];
       if (card.target === 'tower') {
@@ -499,6 +725,8 @@ export class Game {
       return;
     }
     if (this.selectedTower) { this.selectedTower = null; this.ui.hideTowerPanel(); }
+    const en = this.pickEnemy();
+    if (en && this.focusOrder(en)) return;
     this.orderMove();
   }
 
@@ -512,6 +740,8 @@ export class Game {
     p.z = Math.max(-hh, Math.min(hh, p.z));
     p.y = 0;
     h.moveTarget = p;
+    h.focus = null;
+    this.focusEnemy = null;
     this.moveMarker.position.set(p.x, 0.07, p.z);
     this.moveMarker.visible = true;
     this.moveMarker.userData.t = 0;
@@ -534,10 +764,18 @@ export class Game {
       return;
     }
     if (this.paused || this.state === 'reward') return;
-    if (k === ' ') { e.preventDefault(); this.startWave(); return; }
-    if (k >= '1' && k <= '7') { this.selectCard(Number(k) - 1); return; }
+    if (k === ' ') { e.preventDefault(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); this.startWave(); return; }
+    if (k >= '1' && k <= '9') { this.selectCard(Number(k) - 1); return; }
     const si = KEYS.indexOf(k);
-    if (si >= 0) { this.castHeroSkill(si); return; }
+    if (si >= 0) {
+      if (e.repeat) return;
+      if (e.shiftKey) { this.learnSkill(this.selectedHero, si); return; }
+      // 按住瞄准，松开释放
+      this.ui.aimFromButton = false;
+      this.beginAim(si);
+      return;
+    }
+    if (k === 'H') { this.selectedHero && this.selectedHero.alive && (this.selectedHero.holdPos = !this.selectedHero.holdPos, this.ui.toast(this.selectedHero.holdPos ? '英雄坚守原地（不追击）' : '英雄恢复自由追击')); return; }
     if (k === 'Tab') {
       e.preventDefault();
       const heroes = this.units.filter((u) => u.kind === 'hero');
@@ -555,6 +793,8 @@ export class Game {
   onKeyUp(e) {
     const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
     this.keys[k] = false;
+    const si = KEYS.indexOf(k);
+    if (si >= 0 && this.aimSkill === si && !this.ui.aimFromButton) this.castHeroSkill(si);
     if (e.key === 'Shift') this.keys.Shift = false;
   }
 
@@ -580,6 +820,7 @@ export class Game {
     // 法力
     let regen = 0.45;
     for (const t of this.towers) if (t.def.support) regen += t.stats.mana;
+    if (this.tiers.arcane >= 2) regen *= 1.3;
     this.mana = Math.min(this.maxMana, this.mana + regen * dt);
     // 生成敌人
     if (this.state === 'wave') {
@@ -593,7 +834,7 @@ export class Game {
         if (e.boss) { this.fx.shake(0.8); this.ui.bossBar(e); }
       }
       this.drawTimer += dt;
-      if (this.drawTimer >= 9) { this.drawTimer = 0; this.drawCards(1); }
+      if (this.drawTimer >= (this.has('prophecy') ? 7 : 9)) { this.drawTimer = 0; this.drawCards(1); }
     }
     // WASD 控制
     const h = this.selectedHero;
@@ -672,7 +913,7 @@ export class Game {
       const [gx, gz] = w.toGrid(this.mouseWorld.x, this.mouseWorld.z);
       if (w.inGrid(gx, gz)) {
         const p = w.toWorld(gx, gz);
-        const ok = w.canBuild(gx, gz) && this.gold >= TOWERS[this.buildType].levels[0].cost;
+        const ok = w.canBuild(gx, gz) && this.gold >= this.towerCost(this.buildType, 0);
         w.hover.visible = true;
         w.hover.position.set(p.x, 0.03, p.z);
         w.hover.material.color.set(ok ? 0x66ff88 : 0xff5555);
@@ -706,9 +947,9 @@ export class Game {
       this.targetRing.material.color.set(card.color);
       this.targetFill.material.color.set(card.color);
       this.targetRing.rotation.y += 0.02;
-    } else if (this.ui.hoverSkill >= 0 && this.selectedHero && this.selectedHero.alive) {
-      // 悬停技能时预览
-      const h = this.selectedHero, i = this.ui.hoverSkill;
+    } else if ((this.aimSkill >= 0 || this.ui.hoverSkill >= 0) && this.selectedHero && this.selectedHero.alive) {
+      // 瞄准 / 悬停技能时预览
+      const h = this.selectedHero, i = this.aimSkill >= 0 ? this.aimSkill : this.ui.hoverSkill;
       const rr = skillRange(h.id, i);
       const p = rr === 0 ? h.pos : this.mouseWorld;
       this.targetRing.visible = true;
@@ -716,7 +957,26 @@ export class Game {
       this.targetRing.scale.setScalar(skillRadius(h.id, i));
       this.targetRing.material.color.set(HEROES[h.id].color);
       this.targetFill.material.color.set(HEROES[h.id].color);
+      this.targetRing.rotation.y += 0.03;
+      if (rr > 0) {
+        // 施法距离圈
+        this.castRing.visible = true;
+        this.castRing.position.set(h.pos.x, 0.07, h.pos.z);
+        this.castRing.scale.setScalar(rr);
+        // 超出射程时目标点贴近边缘
+        const dx = p.x - h.pos.x, dz = p.z - h.pos.z, d = Math.hypot(dx, dz);
+        if (d > rr) this.targetRing.position.set(h.pos.x + dx / d * rr, 0.08, h.pos.z + dz / d * rr);
+      }
     } else this.targetRing.visible = false;
+    if (!(this.aimSkill >= 0 || this.ui.hoverSkill >= 0) || !this.targetRing.visible || this.pendingCard >= 0) this.castRing.visible = false;
+    // 集火标记
+    const fe = this.focusEnemy;
+    if (fe && fe.alive && this.selectedHero && this.selectedHero.focus === fe) {
+      this.focusMarker.visible = true;
+      this.focusMarker.position.set(fe.pos.x, 0.09, fe.pos.z);
+      this.focusMarker.scale.setScalar(fe.def.size * (fe.boss ? 2 : 1.3) + 0.3);
+      this.focusMarker.rotation.y -= 0.05;
+    } else this.focusMarker.visible = false;
   }
 
   dispose() {

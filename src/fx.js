@@ -151,6 +151,7 @@ class ParticleSystem {
 }
 
 // ---------- 共享着色器材质 ----------
+const sphereGeo = new THREE.SphereGeometry(1, 24, 16);
 const ringGeo = new THREE.PlaneGeometry(1, 1);
 ringGeo.rotateX(-Math.PI / 2);
 
@@ -179,13 +180,38 @@ function makeRingMaterial(color, kind = 0) {
           a = smoothstep(w, 0.0, abs(r - uP)) * (1.0 - uP);
           a += smoothstep(uP, 0.0, r) * 0.15 * (1.0 - uP);
         } else if (uKind < 1.5) {
-          // 区域法阵 (持续效果)
+          // 区域法阵 (持续效果)：外环 + 符文带 + 旋转刻度 + 流动噪声
           float ang = atan(c.y, c.x);
-          float edge = smoothstep(1.0, 0.94, r) * smoothstep(0.86, 0.93, r);
-          float rune = smoothstep(0.78, 0.8, r) * smoothstep(0.84, 0.82, r) * (0.5 + 0.5 * sin(ang * 12.0 + uTime * 3.0));
-          float n = noise(vec2(ang * 3.0, r * 4.0 - uTime * 1.5));
-          float fill = smoothstep(1.0, 0.0, r) * 0.25 * (0.6 + 0.6 * n);
-          a = (edge * 1.2 + rune + fill) * step(r, 1.0);
+          float edge = smoothstep(1.0, 0.95, r) * smoothstep(0.88, 0.94, r);
+          float edgePulse = 0.8 + 0.4 * sin(uTime * 4.0);
+          float band = smoothstep(0.74, 0.76, r) * smoothstep(0.86, 0.84, r);
+          float glyph = step(0.55, fract((ang + uTime * 0.6) * 3.8197)) * step(0.3, noise(vec2(floor((ang + uTime * 0.6) * 3.8197 * 2.0), 3.0)));
+          float rune = band * (0.35 + 0.65 * glyph);
+          float ticks = smoothstep(0.62, 0.64, r) * smoothstep(0.7, 0.68, r) * step(0.7, fract((ang - uTime * 0.9) * 7.639));
+          float n = noise(vec2(ang * 3.0 + uTime * 0.4, r * 5.0 - uTime * 1.8));
+          float n2 = noise(c * 6.0 + uTime * 0.7);
+          float fill = smoothstep(1.0, 0.0, r) * 0.22 * (0.5 + 0.8 * n * n2);
+          float core = smoothstep(0.2, 0.0, r) * 0.25;
+          a = (edge * 1.3 * edgePulse + rune * 0.9 + ticks * 0.8 + fill + core) * step(r, 1.0);
+        } else if (uKind > 3.5) {
+          // 魔法印记：双环 + 六芒星 + 旋转符文
+          float ang = atan(c.y, c.x) + uTime;
+          float ring1 = smoothstep(0.035, 0.0, abs(r - 0.95));
+          float ring2 = smoothstep(0.025, 0.0, abs(r - 0.78));
+          float ring3 = smoothstep(0.02, 0.0, abs(r - 0.42));
+          // 六芒星：两个旋转三角形的边
+          float star = 0.0;
+          for (int k = 0; k < 2; k++) {
+            float off = float(k) * 3.14159 / 3.0 - uTime * 0.7;
+            for (int j = 0; j < 3; j++) {
+              float th = off + float(j) * 2.0944;
+              vec2 nrm = vec2(cos(th), sin(th));
+              star += smoothstep(0.02, 0.0, abs(dot(c * 2.0, nrm) - 0.39)) * step(r, 0.79);
+            }
+          }
+          float runes = smoothstep(0.8, 0.82, r) * smoothstep(0.93, 0.91, r) * step(0.5, fract(ang * 2.546)) * (0.5 + 0.5 * sin(ang * 24.0));
+          float glow = smoothstep(1.0, 0.0, r) * 0.15;
+          a = (ring1 * 1.4 + ring2 + ring3 * 0.8 + min(star, 1.0) * 0.9 + runes * 0.8 + glow) * (0.85 + 0.15 * sin(uTime * 10.0));
         } else if (uKind < 2.5) {
           // 焦痕
           float n = noise(c * 8.0) * 0.5 + noise(c * 20.0) * 0.5;
@@ -197,6 +223,7 @@ function makeRingMaterial(color, kind = 0) {
           a = smoothstep(1.0, 0.3, r) * sw * 0.9 + smoothstep(0.25, 0.15, r) * 2.0;
         }
         if (uKind > 1.5 && uKind < 2.5) gl_FragColor = vec4(uColor, a * uA);
+        else if (uKind > 3.5) gl_FragColor = vec4(uColor * a * uA * 1.6 + vec3(a * a * 0.25 * uA), a * uA);
         else if (uKind > 2.5) gl_FragColor = vec4(mix(uColor * a, vec3(0.0), smoothstep(0.22,0.12,r)), a * uA);
         else gl_FragColor = vec4(uColor * a * uA, a * uA);
       }`,
@@ -298,7 +325,9 @@ export class FX {
     this.burst(p, { count: Math.floor(30 * s), color, color2: 0x331100, intensity: 2.5, speed: 5 * Math.sqrt(s), life: 0.9, size: 2.2 * s, sizeEnd: 0.5, drag: 3, up: 1 });
     this.burst(p, { count: Math.floor(25 * s), color: 0x222222, color2: 0x555555, smoke: true, speed: 2.5 * Math.sqrt(s), life: 1.6, size: 2.5 * s, sizeEnd: 4 * s, drag: 2, up: 1.5, alpha: 0.55 });
     this.burst(p, { count: Math.floor(16 * s), color: 0xffd080, intensity: 3, speed: 12, life: 1.0, size: 0.35, sizeEnd: 0.1, gravity: 14, drag: 0.5, up: 4 });
+    this.flashSphere(p, color, 1.6 * s, 0.35 + 0.1 * s);
     this.ring(p, color, 4 * s, 0.45);
+    this.ring(p, 0xffffff, 2.2 * s, 0.25);
     this.light(p, color, 6 * s, 8 * s, 0.35);
     if (!opts.noDecal) this.scorch(p, 2.2 * s);
   }
@@ -365,6 +394,74 @@ export class FX {
     });
   }
 
+  // 魔法印记：展开 -> 旋转 -> 消散
+  sigil(p, color, radius = 2, dur = 1, opts = {}) {
+    const mat = makeRingMaterial(color, 4);
+    const m = new THREE.Mesh(ringGeo, mat);
+    m.position.set(p.x, (opts.y || 0) + 0.11, p.z);
+    m.renderOrder = 8;
+    this.scene.add(m);
+    const spin = opts.spin || 2;
+    let t = 0;
+    this.items.push({
+      update: (dt) => {
+        t += dt;
+        const k = t / dur;
+        const open = Math.min(1, t / 0.18);
+        const ease = 1 - Math.pow(1 - open, 3);
+        m.scale.setScalar(radius * 2 * (0.4 + 0.6 * ease) * (1 + k * 0.08));
+        mat.uniforms.uTime.value = t * spin * 0.5;
+        mat.uniforms.uA.value = (k > 0.7 ? Math.max(0, (1 - k) / 0.3) : 1) * ease;
+        return t < dur;
+      },
+      dispose: () => { this.scene.remove(m); mat.dispose(); },
+    });
+    if (opts.light !== false) this.light(p, color, 2.5, radius * 3, Math.min(0.5, dur));
+  }
+
+  // 体积火球核心：扩张的菲涅尔球体
+  flashSphere(p, color, radius = 1.5, dur = 0.4) {
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: this.col(color, 2.5) }, uA: { value: 1 } },
+      vertexShader: `varying vec3 vN; varying vec3 vV; void main(){ vec4 wp = modelMatrix*vec4(position,1.0); vN = normalize(mat3(modelMatrix)*normal); vV = normalize(cameraPosition - wp.xyz); gl_Position = projectionMatrix*viewMatrix*wp; }`,
+      fragmentShader: `varying vec3 vN; varying vec3 vV; uniform vec3 uColor; uniform float uA;
+        void main(){ float f = abs(dot(vN, vV)); float rim = pow(1.0 - f, 2.0); float core = pow(f, 3.0);
+          vec3 c = uColor * (rim * 1.2 + 0.3) + vec3(1.0, 0.95, 0.85) * core * 1.5;
+          gl_FragColor = vec4(c * uA, uA); }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    const m = new THREE.Mesh(sphereGeo, mat);
+    m.position.set(p.x, (p.y || 0) + radius * 0.3, p.z);
+    m.renderOrder = 11;
+    this.scene.add(m);
+    let t = 0;
+    this.items.push({
+      update: (dt) => {
+        t += dt;
+        const k = Math.min(1, t / dur);
+        m.scale.setScalar(radius * (0.3 + 0.7 * (1 - Math.pow(1 - k, 3))));
+        mat.uniforms.uA.value = Math.pow(1 - k, 1.5);
+        return t < dur;
+      },
+      dispose: () => { this.scene.remove(m); mat.dispose(); },
+    });
+  }
+
+  // 漩涡粒子：向中心螺旋汇聚
+  vortex(p, color, radius = 3, count = 6, opts = {}) {
+    const c = this.col(color, opts.intensity || 2.5);
+    const c2 = opts.color2 !== undefined ? this.col(opts.color2, 1.5) : c;
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2, r = radius * rand(0.7, 1.1);
+      const sx = p.x + Math.cos(a) * r, sz = p.z + Math.sin(a) * r;
+      const swirl = opts.swirl !== undefined ? opts.swirl : 4;
+      const inward = opts.inward !== undefined ? opts.inward : 1.6;
+      this.glow.emit({ x: sx, y: (p.y || 0) + rand(0.1, opts.h || 1.5), z: sz,
+        vx: (p.x - sx) * inward - Math.sin(a) * swirl, vy: opts.vy || 0.5, vz: (p.z - sz) * inward + Math.cos(a) * swirl,
+        life: opts.life || 0.6, size: opts.size || 0.5, sizeEnd: 0.05, color: c, color2: c2, drag: 0 });
+    }
+  }
+
   light(p, color, intensity = 5, dist = 8, dur = 0.3) {
     let l = this.lights.find((x) => x.userData.life <= 0);
     if (!l) l = this.lights.reduce((a, b) => (a.userData.life < b.userData.life ? a : b));
@@ -394,6 +491,16 @@ export class FX {
     mesh.frustumCulled = false;
     mesh.renderOrder = 11;
     this.scene.add(mesh);
+    // 外层辉光：同一路径、更宽、更淡
+    const hgeo = new THREE.BufferGeometry();
+    const hverts = new Float32Array(verts.length);
+    hgeo.setAttribute('position', new THREE.BufferAttribute(hverts, 3));
+    hgeo.setIndex(idx);
+    const hmat = new THREE.MeshBasicMaterial({ color: this.col(color, 1.2), transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const halo = new THREE.Mesh(hgeo, hmat);
+    halo.frustumCulled = false;
+    halo.renderOrder = 10;
+    this.scene.add(halo);
     const dir = new THREE.Vector3().subVectors(b, a);
     const len = dir.length();
     dir.normalize();
@@ -413,8 +520,12 @@ export class FX {
         const w = width * (0.6 + Math.random() * 0.6);
         verts[i * 6] = px - side.x * w; verts[i * 6 + 1] = py + w * 0.5; verts[i * 6 + 2] = pz - side.z * w;
         verts[i * 6 + 3] = px + side.x * w; verts[i * 6 + 4] = py - w * 0.5; verts[i * 6 + 5] = pz + side.z * w;
+        const hw = width * 4;
+        hverts[i * 6] = px - side.x * hw; hverts[i * 6 + 1] = py + hw * 0.5; hverts[i * 6 + 2] = pz - side.z * hw;
+        hverts[i * 6 + 3] = px + side.x * hw; hverts[i * 6 + 4] = py - hw * 0.5; hverts[i * 6 + 5] = pz + side.z * hw;
       }
       geo.attributes.position.needsUpdate = true;
+      hgeo.attributes.position.needsUpdate = true;
     };
     build();
     let t = 0, tick = 0;
@@ -423,9 +534,10 @@ export class FX {
         t += dt; tick += dt;
         if (tick > 0.04) { tick = 0; build(); }
         mat.opacity = 1 - t / dur;
+        hmat.opacity = 0.35 * (1 - t / dur);
         return t < dur;
       },
-      dispose: () => { this.scene.remove(mesh); geo.dispose(); mat.dispose(); },
+      dispose: () => { this.scene.remove(mesh); this.scene.remove(halo); geo.dispose(); mat.dispose(); hgeo.dispose(); hmat.dispose(); },
     });
     if (branches && len > 2) {
       for (let k = 0; k < 2; k++) {

@@ -5,7 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import './style.css';
-import { MAPS, CARDS, RARITY, DEFAULT_DECK, DECK_MIN, DECK_MAX, starterCollection, maxCopies, HEROES, HERO_ORDER, TOWERS, TOWER_ORDER } from './data.js';
+import { MAPS, CARDS, RARITY, DEFAULT_DECK, DECK_MIN, DECK_MAX, starterCollection, maxCopies, HEROES, HERO_ORDER, TOWERS, TOWER_ORDER, SCHOOLS, SCHOOL_ORDER, schoolCounts, RELICS } from './data.js';
 import { World } from './world.js';
 import { FX, rand } from './fx.js';
 import { Game } from './game.js';
@@ -95,7 +95,7 @@ class App {
       else if (e.key === 'Escape') this.showTitle();
     });
     window.addEventListener('keyup', (e) => this.game && this.game.onKeyUp(e));
-    window.addEventListener('blur', () => { if (this.game) this.game.keys = {}; });
+    window.addEventListener('blur', () => { if (this.game) { this.game.keys = {}; this.game.aimSkill = -1; } });
     document.addEventListener('pointerdown', () => audio.init(), { once: true });
     document.addEventListener('mouseover', (e) => {
       if (e.target.closest && e.target.closest('.btn') && audio.ctx) audio.play('hover', 0.6);
@@ -243,17 +243,23 @@ class App {
             <ul>
               <li>左键/右键点击地面：移动到目标点</li>
               <li><b>WASD</b>：直接操控英雄移动</li>
-              <li><b>Q / E / R</b>：朝鼠标位置释放技能</li>
+              <li><b>按住 Q / E / R</b> 瞄准（显示施法距离），松开施放</li>
+              <li><b>点击敌人</b>：集火目标 · <b>H</b>：坚守原地</li>
+              <li><b>Shift + Q/E/R</b>：用技能点学习/升级技能（每级 +30% 威力、-8% 冷却）</li>
               <li><b>Tab</b>：切换英雄 · <b>F</b>：镜头聚焦</li>
             </ul>
-            <p>近战英雄能阻挡敌人；英雄击杀敌人获得经验升级，阵亡后会自动复活。</p>
+            <p>近战英雄能阻挡敌人；英雄升级获得技能点，终极技能 3 级时领悟。每名英雄还有独特被动。</p>
             <ul>${HERO_ORDER.map((h) => `<li>${HEROES[h].icon} <b>${HEROES[h].name}</b>：${HEROES[h].desc}</li>`).join('')}</ul>
           </div>
           <div>
             <h3>🃏 魔法卡牌</h3>
             <p>出征前在「卡组构筑」中组建 ${DECK_MIN}-${DECK_MAX} 张的卡组。每波开始抽 2 张，战斗中每 9 秒再抽 1 张。</p>
             <p>法力随时间恢复（法力之泉可加速）。点击卡牌或按数字键 <b>1-7</b> 选择，再点击地面释放；右键取消。</p>
-            <p>每波结束后可从 3 张卡中选择 1 张加入卡组，并永久解锁到收藏中——史诗卡只能这样获得！</p>
+            <p>每波结束后可从 3 张卡中选择 1 张加入卡组（永久解锁），或改为<b>精简卡组</b>移除一张。史诗与传说卡只能这样获得！</p>
+            <h3>🔗 流派与连携</h3>
+            <p>卡牌分属 ${SCHOOL_ORDER.map((k) => SCHOOLS[k].icon + SCHOOLS[k].name).join('、')} 六个流派。卡组中同流派卡牌达到 3 / 6 张时激活<b>羁绊</b>加成。连续打出同流派卡牌触发<b>连携</b>，每层伤害 +15%。</p>
+            <h3>🏺 遗物</h3>
+            <p>开局与每次击败首领后，从 3 件遗物中选择 1 件，本局持续生效。共 ${Object.keys(RELICS).length} 种。</p>
             <h3>⌨ 其它</h3>
             <p><b>空格</b>开始下一波 · <b>Esc</b> 暂停 · 方向键平移镜头 · 滚轮缩放</p>
           </div>
@@ -281,6 +287,9 @@ class App {
               <button class="btn small" data-f="common">普通</button>
               <button class="btn small" data-f="rare">稀有</button>
               <button class="btn small" data-f="epic">史诗</button>
+              <button class="btn small" data-f="legendary">传说</button>
+              <span class="db-sep"></span>
+              ${SCHOOL_ORDER.map((k) => `<button class="btn small" data-f="s:${k}" title="${SCHOOLS[k].name}">${SCHOOLS[k].icon}</button>`).join('')}
             </div>
           </div>
           <div class="collection" id="db-col"></div>
@@ -288,6 +297,7 @@ class App {
         <div class="db-right">
           <h2>我的卡组 <span id="db-count"></span></h2>
           <div class="curve" id="db-curve"></div>
+          <div class="db-syn" id="db-syn"></div>
           <div class="deck-list" id="db-list"></div>
           <div class="db-btns">
             <button class="btn small" id="db-default">推荐卡组</button>
@@ -304,7 +314,7 @@ class App {
     const count = (id) => deck.filter((x) => x === id).length;
     const render = () => {
       const col = d.querySelector('#db-col');
-      const ids = Object.keys(CARDS).filter((id) => filter === 'all' || CARDS[id].rarity === filter)
+      const ids = Object.keys(CARDS).filter((id) => filter === 'all' || CARDS[id].rarity === filter || (filter.startsWith('s:') && CARDS[id].school === filter.slice(2)))
         .sort((a, b) => CARDS[a].cost - CARDS[b].cost);
       col.innerHTML = ids.map((id) => {
         const own = this.save.collection[id] || 0;
@@ -345,6 +355,15 @@ class App {
       const curve = [0, 0, 0, 0, 0, 0, 0, 0];
       deck.forEach((id) => curve[Math.min(7, CARDS[id].cost)]++);
       const mx = Math.max(1, ...curve);
+      const sc = schoolCounts(deck);
+      d.querySelector('#db-syn').innerHTML = SCHOOL_ORDER.map((k) => {
+        const S = SCHOOLS[k];
+        const tier = S.tiers.filter((t) => sc[k] >= t.n).length;
+        const next = S.tiers[tier];
+        return `<div class="dbs tier${tier}" style="--sc:${S.color}" title="${S.tiers.map((t) => `[${t.n}] ${t.desc}`).join('\n')}">
+          <span>${S.icon} ${S.name}</span><b>${sc[k]}</b>
+          <small>${tier ? S.tiers[tier - 1].desc : ''}${next ? `${tier ? ' · ' : ''}再 ${next.n - sc[k]} 张：${next.desc}` : ''}</small></div>`;
+      }).join('');
       d.querySelector('#db-curve').innerHTML = curve.map((n, i) => `<div class="cbar"><i style="height:${(n / mx) * 100}%"></i><span>${i === 7 ? '7+' : i}</span></div>`).join('');
     };
     const msg = (m) => {

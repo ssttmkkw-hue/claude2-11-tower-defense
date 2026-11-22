@@ -134,6 +134,7 @@ export class Enemy {
       g.fx.burst(this.center, { count: 10, color: 0xbfe8ff, intensity: 1.5, speed: 4, life: 0.5, size: 0.5, gravity: 10 });
       g.scene.remove(this.iceShell);
       this.iceShell.geometry.dispose();
+      this.iceShell.material.dispose();
       this.iceShell = null;
     }
     if (this.iceShell) this.iceShell.position.set(this.pos.x, this.pos.y + 0.6 * this.def.size * (this.boss ? 1.8 : 1), this.pos.z);
@@ -269,7 +270,7 @@ export class Enemy {
     this.game.scene.remove(this.barHolder);
     this.bar.userData.fg.material.dispose();
     for (const m of this.mesh.userData.flash) m.dispose();
-    if (this.iceShell) { this.game.scene.remove(this.iceShell); this.iceShell.geometry.dispose(); }
+    if (this.iceShell) { this.game.scene.remove(this.iceShell); this.iceShell.geometry.dispose(); this.iceShell.material.dispose(); }
   }
 }
 
@@ -302,9 +303,9 @@ export class Tower {
     this.buildAnim = 0;
   }
 
-  upgrade() {
+  upgrade(cost) {
     this.level++;
-    this.spent += this.stats.cost;
+    this.spent += cost !== undefined ? cost : this.stats.cost;
     this.buildMesh();
   }
 
@@ -348,8 +349,8 @@ export class Tower {
       if (Math.random() < dt * 4) g.fx.trail(_v.set(this.pos.x + rand(-0.6, 0.6), 1, this.pos.z + rand(-0.6, 0.6)), 0x4ac8ff, 0.6, 1.2, 0, 2);
       return;
     }
-    const haste = g.time < g.buffs.towerHaste ? 1.6 : 1;
-    if (haste > 1 && Math.random() < dt * 6) g.fx.trail(_v.set(this.pos.x + rand(-0.8, 0.8), 0.5, this.pos.z + rand(-0.8, 0.8)), 0xff5a3a, 0.7, 0.6, 0, 2);
+    const haste = g.towerHasteMul;
+    if (g.time < g.buffs.towerHaste && Math.random() < dt * 6) g.fx.trail(_v.set(this.pos.x + rand(-0.8, 0.8), 0.5, this.pos.z + rand(-0.8, 0.8)), 0xff5a3a, 0.7, 0.6, 0, 2);
     this.cd -= dt * haste;
     if (this.def.pulse) {
       if (this.cd <= 0) {
@@ -378,7 +379,7 @@ export class Tower {
 
   fire(target) {
     const g = this.game;
-    const dmg = this.stats.dmg * this.dmgMul;
+    const dmg = this.stats.dmg * this.dmgMul * (this.type === 'arcane' && g.tiers.arcane >= 2 ? 1.2 : 1);
     const from = this.muzzlePos();
     switch (this.type) {
       case 'arrow': {
@@ -426,7 +427,7 @@ export class Tower {
       }
       case 'tesla': {
         audio.play('zap', 0.7);
-        const chain = this.stats.chain;
+        const chain = this.stats.chain + g.teslaBonus;
         const hit = new Set();
         let cur = target, prev = from;
         for (let i = 0; i < chain && cur; i++) {
@@ -457,7 +458,8 @@ export class Tower {
     g.fx.burst(this.pos.clone().setY(1), { count: 30, color: 0xbfe8ff, intensity: 2, speed: s.range * 1.6, flat: true, life: 0.5, size: 0.6, drag: 3 });
     for (const e of targets) {
       g.damageEnemy(e, s.dmg * this.dmgMul, 'magic', this);
-      if (!e.boss || Math.random() < 0.5) g.slowEnemy(e, 1 - s.slow, 1.6);
+      const slow = Math.min(0.85, s.slow + (g.has('frostcore') ? 0.1 : 0));
+      if (!e.boss || Math.random() < 0.5) g.slowEnemy(e, 1 - slow, 1.6);
     }
   }
 
@@ -469,6 +471,7 @@ const SUMMON_DEFS = {
   golem: { name: '石像守卫', hp: 900, atk: 40, rate: 1.2, range: 1.8, speed: 2.5, melee: true, block: 3, dtype: 'phys' },
   wolf: { name: '灵狼', hp: 220, atk: 26, rate: 0.7, range: 1.4, speed: 6, melee: true, block: 1, dtype: 'magic' },
   phoenix: { name: '凤凰', hp: 9999, atk: 55, rate: 0.6, range: 7, speed: 5, melee: false, block: 0, dtype: 'magic', flying: true },
+  treant: { name: '古树守卫', hp: 1300, atk: 34, rate: 1.4, range: 2.0, speed: 1.8, melee: true, block: 4, dtype: 'phys', root: true },
 };
 
 export class Unit {
@@ -479,9 +482,17 @@ export class Unit {
     this.def = kind === 'hero' ? HEROES[id] : SUMMON_DEFS[id];
     this.level = 1;
     this.xp = 0;
-    this.maxHp = this.def.hp;
+    this.summonMul = kind === 'summon' ? game.summonMul : 1;
+    this.maxHp = Math.round(this.def.hp * (this.def.flying ? 1 : this.summonMul));
     this.hp = this.maxHp;
     this.alive = true;
+    this.ranks = [1, 1, 0];
+    this.skillPts = 0;
+    this.focus = null;
+    this.holdPos = false;
+    this.avatarUntil = 0;
+    this.sancUntil = 0;
+    this.critNext = false;
     this.flying = !!this.def.flying;
     this.atkCD = 0;
     this.moveTarget = null;
@@ -490,7 +501,7 @@ export class Unit {
     this.stunUntil = 0;
     this.drUntil = 0;
     this.hasteUntil = 0;
-    this.lifetime = lifetime;
+    this.lifetime = lifetime * (kind === 'summon' ? game.summonDur : 1);
     this.respawn = 0;
     this.lastHurt = -10;
     this.cds = [0, 0, 0];
@@ -513,7 +524,7 @@ export class Unit {
       this.bar.position.y = 3.0;
     } else {
       this.bar = makeHpBar(0x5ac8ff, 1.0);
-      this.bar.position.y = this.id === 'golem' ? 3 : 1.8;
+      this.bar.position.y = this.id === 'golem' || this.id === 'treant' ? 3.4 : 1.8;
     }
     this.mesh.add(this.bar);
     if (this.flying) { this.pos.y = 3.2; this.bar.visible = false; }
@@ -521,14 +532,35 @@ export class Unit {
   }
 
   get dmgMul() {
+    const g = this.game;
     let m = 1 + (this.level - 1) * 0.1;
-    if (this.kind === 'hero' && this.game.time < this.game.buffs.heroDmg) m *= 1.6;
+    if (this.kind === 'hero') {
+      if (g.time < g.buffs.heroDmg) m *= 1.6;
+      if (g.has('herocrest')) m *= 1.2;
+      if (g.tiers.holy >= 2) m *= 1.15;
+      if (g.time < this.avatarUntil) m *= 2;
+    } else m *= this.summonMul;
+    if (g.time < this.sancUntil) m *= 1.3;
     return m;
+  }
+
+  get blockCap() {
+    let b = this.def.block;
+    if (this.kind === 'hero' && this.game.has('bulwark')) b++;
+    if (this.game.time < this.avatarUntil) b += 2;
+    return b;
   }
 
   takeDamage(d) {
     if (!this.alive || this.flying) return;
-    if (this.game.time < this.drUntil) d *= 0.5;
+    const g = this.game;
+    if (g.time < this.drUntil) d *= 0.5;
+    if (g.time < this.avatarUntil) d *= 0.4;
+    if (g.has('bulwark')) d *= 0.8;
+    // 圣光骑士光环
+    for (const u of g.units) {
+      if (u.kind === 'hero' && u.id === 'paladin' && u.alive && u.pos.distanceToSquared(this.pos) < 16) { d *= 0.85; break; }
+    }
     this.hp -= d;
     this.lastHurt = this.game.time;
     if (this.hp <= 0) this.die();
@@ -548,8 +580,9 @@ export class Unit {
     for (const e of g.enemies) if (e.blockedBy === this) e.blockedBy = null;
     if (this.kind === 'hero') {
       audio.play('herodie');
-      this.respawn = 12 + this.level;
+      this.respawn = (12 + this.level) * (g.has('grail') ? 0.5 : 1) * (g.tiers.holy >= 2 ? 0.5 : 1);
       this.mesh.visible = false;
+      this.focus = null;
       g.ui.toast(`${this.def.name} 倒下了！${Math.ceil(this.respawn)} 秒后复活`);
     } else {
       this.mesh.visible = false;
@@ -568,18 +601,23 @@ export class Unit {
     this.anchor.copy(this.pos);
     this.moveTarget = null;
     this.mesh.visible = true;
+    if (g.has('grail')) this.cds = [0, 0, 0];
     g.fx.pillar(this.pos, this.def.color, 1, 20, 0.9);
+    g.fx.sigil(this.pos, this.def.color, 2, 1.2);
     g.fx.burst(this.pos.clone().setY(1), { count: 40, color: this.def.color, intensity: 3, speed: 4, life: 0.8, size: 0.8, up: 2 });
     audio.play('summon', 0.7);
   }
 
   gainXp(x) {
     if (this.kind !== 'hero' || !this.alive || this.level >= 10) return;
-    this.xp += x;
-    const need = 60 + this.level * 50;
-    if (this.xp >= need) {
+    this.xp += x * (this.game.has('herocrest') ? 1.5 : 1);
+    let need = 60 + this.level * 50;
+    while (this.xp >= need && this.level < 10) {
       this.xp -= need;
       this.level++;
+      this.skillPts++;
+      // 等级 3 时若终极技能未学习则自动学习
+      if (this.level === 3 && this.ranks[2] === 0) { this.ranks[2] = 1; this.skillPts--; this.game.ui.toast(`${this.def.name} 领悟了终极技能「${this.def.skills[2].name}」！`); }
       const ratio = this.hp / this.maxHp;
       this.maxHp = Math.round(this.def.hp * (1 + (this.level - 1) * 0.12));
       this.hp = Math.min(this.maxHp, this.maxHp * ratio + this.maxHp * 0.3);
@@ -587,7 +625,10 @@ export class Unit {
       g.fx.pillar(this.pos, 0xffd257, 0.9, 12, 1.0);
       g.fx.burst(this.pos.clone().setY(1), { count: 30, color: 0xffd257, intensity: 3, speed: 3, life: 1, size: 0.7, up: 3 });
       g.ui.floatText(this.pos.clone().setY(3), `升级！Lv.${this.level}`, '#ffd257', true);
+      g.fx.sigil(this.pos, 0xffd257, 2.2, 1.2, { spin: 3 });
       audio.play('levelup');
+      g.ui.renderHeroes();
+      need = 60 + this.level * 50;
     }
   }
 
@@ -647,7 +688,13 @@ export class Unit {
     // 回血
     if (t - this.lastHurt > 3 && this.hp < this.maxHp) this.heal(this.maxHp * 0.03 * dt);
     if (t < this.stunUntil) { this.animate(dt); return; }
-    const speed = this.def.speed * (t < this.hasteUntil ? 1.3 : 1);
+    const speed = this.def.speed * (t < this.hasteUntil ? 1.3 : 1) * (t < this.avatarUntil ? 1.2 : 1);
+    if (this.focus && (!this.focus.alive || this.manual || this.moveTarget)) this.focus = null;
+    // 神威降临：体型与光效
+    const big = t < this.avatarUntil ? 1.45 : 1;
+    const sc = this.mesh.scale.x + (big - this.mesh.scale.x) * Math.min(1, dt * 5);
+    this.mesh.scale.setScalar(sc);
+    if (big > 1 && Math.random() < dt * 20) g.fx.trail(_v.set(this.pos.x + rand(-0.6, 0.6), rand(0.2, 2.6), this.pos.z + rand(-0.6, 0.6)), 0xffe066, 0.7, 0.8, 0, 2.5);
 
     // 手动控制 (WASD)
     if (this.manual && (this.manual.x || this.manual.z)) {
@@ -668,6 +715,8 @@ export class Unit {
         this.moveTarget = null;
       }
       if (!this.def.melee) this.tryAttack(dt, false);
+    } else if (this.focus) {
+      this.focusCombat(dt, speed);
     } else {
       this.combat(dt, speed);
     }
@@ -679,11 +728,52 @@ export class Unit {
     setBar(this.bar, this.hp / this.maxHp);
   }
 
+  // 集火指定敌人：追击直至进入射程
+  focusCombat(dt, speed) {
+    const e = this.focus;
+    const reach = this.def.melee ? this.def.range + e.def.size * 0.5 : this.def.range * 0.92;
+    const d = Math.hypot(e.pos.x - this.pos.x, e.pos.z - this.pos.z);
+    if (d > reach) {
+      this.releaseBlocks();
+      this.moveToward(e.pos, dt, speed);
+      this.clampToMap();
+      this.anchor.copy(this.pos);
+      if (!this.def.melee) this.tryAttack(dt, false, e);
+      return;
+    }
+    this.anchor.copy(this.pos);
+    if (this.def.melee) {
+      if (!e.flying && !e.blockedBy && this.blockingCount() < this.blockCap) e.blockedBy = this;
+      this.face(e.pos.x - this.pos.x, e.pos.z - this.pos.z, dt);
+      this.atkCD -= dt;
+      if (this.atkCD <= 0 && !e.flying) this.meleeHit(e);
+      else if (e.flying) this.focus = null;
+    } else this.tryAttack(dt, true, e);
+  }
+
+  meleeHit(tgt) {
+    const g = this.game;
+    this.atkCD = this.def.rate;
+    this.attackAnim = 0.3;
+    audio.play('swing', 0.6);
+    g.damageEnemy(tgt, this.def.atk * this.dmgMul, this.def.dtype, this);
+    const hp = tgt.centerClone();
+    const col = this.kind === 'hero' ? this.def.color : this.id === 'treant' ? 0x8ad870 : 0x9ad8ff;
+    g.fx.burst(hp, { count: 10, color: col, intensity: 2.5, speed: 4, life: 0.3, size: 0.5 });
+    g.fx.burst(hp, { count: 4, color: 0xffffff, intensity: 2, speed: 7, life: 0.15, size: 0.3 });
+    if (this.def.root && tgt.alive) {
+      g.slowEnemy(tgt, 0.3, 1.2);
+      // 古树：治疗附近友军
+      for (const u of g.units) if (u.alive && !u.flying && u.pos.distanceToSquared(this.pos) < 16) u.heal(18 * g.healMul);
+      g.fx.burst(this.pos.clone().setY(1), { count: 6, color: 0x8aff7a, intensity: 2, speed: 1.5, life: 0.8, size: 0.4, up: 1.5, radius: 1.5 });
+    }
+  }
+
   combat(dt, speed) {
     const g = this.game;
     if (this.def.melee) {
       // 阻挡逻辑
-      const cap = this.def.block;
+      const cap = this.blockCap;
       let blocking = this.blockingCount();
       if (blocking < cap) {
         for (const e of g.enemies) {
@@ -699,7 +789,7 @@ export class Unit {
       for (const e of g.enemies) if (e.alive && e.blockedBy === this) { tgt = e; break; }
       if (!tgt) {
         // 守卫半径内寻找敌人
-        const guard = this.id === 'wolf' ? 7 : this.id === 'golem' ? 2.5 : 4;
+        const guard = this.holdPos ? this.def.range + 0.6 : this.id === 'wolf' ? 7 : this.id === 'golem' || this.id === 'treant' ? 2.5 : 4;
         let bd = guard * guard;
         for (const e of g.enemies) {
           if (!e.alive || e.flying) continue;
@@ -717,14 +807,7 @@ export class Unit {
         const d = tgt.pos.distanceTo(this.pos);
         this.face(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z, dt);
         this.atkCD -= dt;
-        if (d <= this.def.range + tgt.def.size * 0.5 + 0.3 && this.atkCD <= 0) {
-          this.atkCD = this.def.rate;
-          this.attackAnim = 0.3;
-          audio.play('swing', 0.6);
-          g.damageEnemy(tgt, this.def.atk * this.dmgMul, this.def.dtype, this);
-          const hp = tgt.centerClone();
-          g.fx.burst(hp, { count: 8, color: this.kind === 'hero' ? this.def.color : 0x9ad8ff, intensity: 2.5, speed: 4, life: 0.3, size: 0.5 });
-        }
+        if (d <= this.def.range + tgt.def.size * 0.5 + 0.3 && this.atkCD <= 0) this.meleeHit(tgt);
       } else this.atkCD = Math.max(0, this.atkCD - dt);
     } else {
       if (this.pos.distanceToSquared(this.anchor) > 0.05) this.moveToward(this.anchor, dt, speed);
@@ -732,11 +815,13 @@ export class Unit {
     }
   }
 
-  tryAttack(dt, canFace) {
+  tryAttack(dt, canFace, forced = null) {
     const g = this.game;
-    const haste = g.time < this.hasteUntil ? 2 : 1;
+    const haste = (g.time < this.hasteUntil ? 2 : 1) * (g.time < this.avatarUntil ? 1.3 : 1);
     this.atkCD -= dt * haste;
-    const tgt = g.nearestEnemy(this.pos, this.def.range, true);
+    let tgt = null;
+    if (forced && forced.alive && forced.pos.distanceToSquared(this.pos) <= this.def.range * this.def.range) tgt = forced;
+    else tgt = g.nearestEnemy(this.pos, this.def.range, true);
     if (!tgt) return;
     if (canFace) this.face(tgt.pos.x - this.pos.x, tgt.pos.z - this.pos.z, dt);
     if (this.atkCD > 0) return;
@@ -746,7 +831,11 @@ export class Unit {
     const dmg = this.def.atk * this.dmgMul;
     if (this.id === 'ranger') {
       audio.play('arrow', 0.7);
-      g.spawnProjectile({ from, target: tgt, speed: 30, kind: 'arrow', color: 0x7affaa, onHit: (p, e) => e && e.alive && g.damageEnemy(e, dmg, 'phys', this) });
+      const crit = Math.random() < 0.2;
+      g.spawnProjectile({ from, target: tgt, speed: crit ? 40 : 30, kind: 'arrow', color: crit ? 0xffffff : 0x7affaa, onHit: (p, e) => {
+        if (e && e.alive) { this.critNext = crit; g.damageEnemy(e, dmg, 'phys', this); this.critNext = false; }
+        if (crit) { g.fx.burst(p, { count: 14, color: 0x7affaa, color2: 0xffffff, intensity: 3, speed: 6, life: 0.3, size: 0.5 }); g.fx.ring(p.clone().setY(0), 0x7affaa, 1.2, 0.25); }
+      } });
     } else if (this.id === 'pyro') {
       audio.play('magic', 0.5);
       g.spawnProjectile({ from, target: tgt, speed: 16, kind: 'orb', color: 0xff6a1a, size: 0.22, onHit: (p, e) => { if (e && e.alive) { g.damageEnemy(e, dmg, 'magic', this); g.burnEnemy(e, 10, 2); } g.fx.burst(p, { count: 10, color: 0xff6a1a, intensity: 3, speed: 4, life: 0.3, size: 0.5 }); } });
@@ -802,6 +891,7 @@ export class Unit {
       const wp = p.orb.getWorldPosition(_v);
       this.game.fx.trail(wp, this.id === 'pyro' ? 0xff6a1a : 0x7fd8ff, 0.5, 0.5, 0.05, 2);
     }
+    if (this.id === 'treant' && Math.random() < dt * 4) this.game.fx.trail(_v.copy(this.pos).add(_v2.set(rand(-0.8, 0.8), rand(1.5, 3), rand(-0.8, 0.8))), 0x8aff7a, 0.5, 1.2, 0.1, 1.8);
     if (this.id === 'wolf' && Math.random() < dt * 8) this.game.fx.trail(_v.copy(this.pos).setY(0.7), 0x6ab8ff, 0.7, 0.5, 0.3, 1.5);
   }
 
@@ -878,6 +968,7 @@ export class Projectile {
     if (!this.alive) return;
     this.alive = false;
     this.game.scene.remove(this.mesh);
+    if (this.o.kind === 'mesh') this.mesh.traverse((m) => { if (m.isMesh && m.geometry) m.geometry.dispose(); });
     if (this.o.onHit) this.o.onHit(this.pos.clone(), this.target);
   }
 }

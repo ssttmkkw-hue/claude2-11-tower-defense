@@ -4,6 +4,7 @@ import { audio } from './audio.js';
 import { rand } from './fx.js';
 import { glowMat, mat } from './models.js';
 import { Unit } from './entities.js';
+import { CARDS, rankMul } from './data.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -69,6 +70,7 @@ function nearestTo(g, pos, r) {
 }
 
 function healArea(g, pos, radius, amount) {
+  amount *= g.healMul;
   for (const u of g.units) {
     if (!u.alive || u.flying) continue;
     if (u.pos.distanceToSquared(pos) <= radius * radius) {
@@ -82,6 +84,10 @@ function healArea(g, pos, radius, amount) {
 // ---------- 卡牌效果 ----------
 export function castCard(g, id, pos, tower) {
   const fx = g.fx;
+  const src = { card: id, mul: g.cardPower(id) };
+  const def = CARDS[id];
+  // 地面目标卡牌：施法印记
+  if (pos && def.target === 'point') fx.sigil(pos, new THREE.Color(def.color).getHex(), (def.radius || 1.5) * 1.1, 0.9, { spin: 3, light: false });
   switch (id) {
     case 'fireball': {
       audio.play('fire');
@@ -92,7 +98,7 @@ export function castCard(g, id, pos, tower) {
           fx.explosion(p, 0xff6a1a, 1.2);
           fx.shake(0.35);
           audio.play('explode');
-          for (const e of g.enemiesInRadius(p, 2.5, true)) { g.damageEnemy(e, 180, 'magic', 'card'); g.burnEnemy(e, 25, 3); }
+          for (const e of g.enemiesInRadius(p, 2.5, true)) { g.damageEnemy(e, 180, 'magic', src); g.burnEnemy(e, 25, 3); }
         },
       });
       break;
@@ -106,7 +112,7 @@ export function castCard(g, id, pos, tower) {
       fx.light(pos, 0x7fd8ff, 6, 10, 0.5);
       fx.screenFlash('rgba(150,220,255,0.6)', 0.35);
       iceSpikes(g, pos, 3.5, 14, 2.5);
-      freezeArea(g, pos, 3.5, 60, 2.5, 'card');
+      freezeArea(g, pos, 3.5, 60, 2.5, src);
       break;
     }
     case 'chain': {
@@ -118,12 +124,12 @@ export function castCard(g, id, pos, tower) {
       let prev = top;
       let i = 0;
       const step = () => {
-        if (!cur || i >= 8) return;
+        if (!cur || i >= 8 + g.chainBonus) return;
         hit.add(cur);
         const c = cur.centerClone();
         fx.lightning(prev, c, 0xa8b8ff, i === 0 ? 0.3 : 0.18, 0.3);
         fx.light(c, 0x8aa8ff, 4, 7, 0.2);
-        g.damageEnemy(cur, 110, 'magic', 'card');
+        g.damageEnemy(cur, 110, 'magic', src);
         g.stunEnemy(cur, 0.3);
         audio.play('zap');
         prev = c;
@@ -159,7 +165,7 @@ export function castCard(g, id, pos, tower) {
           fx.shake(1.3);
           fx.screenFlash('rgba(255,180,90,0.8)', 0.6);
           audio.play('bigexplode');
-          for (const e of g.enemiesInRadius(p, 4, true)) { g.damageEnemy(e, 700, 'magic', 'card'); g.burnEnemy(e, 30, 4); g.stunEnemy(e, 0.8); }
+          for (const e of g.enemiesInRadius(p, 4, true)) { g.damageEnemy(e, 700, 'magic', src); g.burnEnemy(e, 30, 4); g.stunEnemy(e, 0.8); }
         },
       });
       break;
@@ -195,7 +201,7 @@ export function castCard(g, id, pos, tower) {
           fx.glow.emit({ x: pos.x + Math.cos(a) * r, y: 6 + Math.random() * 2, z: pos.z + Math.sin(a) * r, vx: 3, vy: -9, vz: 1, life: 0.8, size: 0.45, sizeEnd: 0.3, color: fx.col(0xe8f8ff, 1.5), drag: 0 });
         }
         if (Math.random() < dt * 3) fx.burst(pos.clone().setY(0.3), { count: 6, color: 0xffffff, smoke: true, speed: 3, flat: true, life: 1.2, size: 2, sizeEnd: 3, alpha: 0.25, radius: 3 });
-        for (const e of g.enemiesInRadius(pos, 4.5, true)) { e.zoneSlow = 0.5; g.damageEnemy(e, 50 * dt, 'magic', 'card', true); }
+        for (const e of g.enemiesInRadius(pos, 4.5, true)) { e.zoneSlow = 0.5; g.damageEnemy(e, 50 * dt, 'magic', src, true); }
       });
       break;
     }
@@ -204,7 +210,7 @@ export function castCard(g, id, pos, tower) {
       zone(g, pos, 3.2, 8, 0x7aff3a, 1, (dt) => {
         if (Math.random() < dt * 14) fx.burst(pos.clone().setY(0.3), { count: 1, color: 0x4a8a1a, smoke: true, speed: 0.6, life: 2, size: 2.5, sizeEnd: 4, alpha: 0.35, radius: 2.5, up: 0.5 });
         if (Math.random() < dt * 20) fx.burst(pos.clone().setY(0.1), { count: 1, color: 0x9cff4a, intensity: 2, speed: 0.5, life: 1.2, size: 0.5, sizeEnd: 0.8, radius: 2.8, up: 1.2 });
-        for (const e of g.enemiesInRadius(pos, 3.2, true)) g.damageEnemy(e, 40 * dt, 'magic', 'card', true);
+        for (const e of g.enemiesInRadius(pos, 3.2, true)) g.damageEnemy(e, 40 * dt, 'magic', src, true);
       });
       break;
     }
@@ -219,7 +225,7 @@ export function castCard(g, id, pos, tower) {
       fx.screenFlash('rgba(255,250,200,0.9)', 0.4);
       fx.shake(0.4);
       fx.scorch(p.clone().setY(0), 1.2);
-      if (tgt) { g.damageEnemy(tgt, 320, 'magic', 'card'); g.stunEnemy(tgt, 1); }
+      if (tgt) { g.damageEnemy(tgt, 320, 'magic', src); g.stunEnemy(tgt, 1); }
       break;
     }
     case 'blackhole': {
@@ -247,14 +253,14 @@ export function castCard(g, id, pos, tower) {
           const ahead = e.path.at(e.dist + 0.5);
           const dNow = e.pos.distanceToSquared(pos), dAhead = ahead.distanceToSquared(pos);
           if (dAhead < dNow) e.dist += dt * 2.5; else e.dist = Math.max(0, e.dist - dt * 2.5);
-          g.damageEnemy(e, 90 * dt, 'magic', 'card', true);
+          g.damageEnemy(e, 90 * dt, 'magic', src, true);
         }
       }, { onEnd: () => {
         g.scene.remove(core); g.scene.remove(halo); core.geometry.dispose(); halo.geometry.dispose();
         fx.explosion(pos.clone().setY(1), 0xb65cff, 1.5, { noDecal: true });
         fx.shake(0.5);
         audio.play('explode');
-        for (const e of g.enemiesInRadius(pos, 5, true)) g.damageEnemy(e, 150, 'magic', 'card');
+        for (const e of g.enemiesInRadius(pos, 5, true)) g.damageEnemy(e, 150, 'magic', src);
       } });
       break;
     }
@@ -296,7 +302,7 @@ export function castCard(g, id, pos, tower) {
     case 'blessing': {
       audio.play('heal');
       g.buffs.heroDmg = g.time + 10;
-      for (const u of g.units) if (u.kind === 'hero' && u.alive) { u.heal(150); fx.pillar(u.pos, 0xfff2a8, 1, 14, 1.0); fx.burst(u.pos.clone().setY(1), { count: 25, color: 0xfff2a8, intensity: 3, speed: 3, life: 1, size: 0.6, up: 2 }); }
+      for (const u of g.units) if (u.kind === 'hero' && u.alive) { u.heal(150 * g.healMul); fx.pillar(u.pos, 0xfff2a8, 1, 14, 1.0); fx.burst(u.pos.clone().setY(1), { count: 25, color: 0xfff2a8, intensity: 3, speed: 3, life: 1, size: 0.6, up: 2 }); }
       g.ui.banner('👼 神圣祝福', '#fff2a8');
       break;
     }
@@ -319,7 +325,7 @@ export function castCard(g, id, pos, tower) {
         fx.burst(e.pos, { count: 10, color: 0x8a7a5a, smoke: true, speed: 3, flat: true, life: 1, size: 1.4, sizeEnd: 2.5, alpha: 0.6 });
         fx.burst(e.pos, { count: 6, color: 0x5a4a3a, speed: 6, life: 0.9, size: 0.4, gravity: 18, up: 5, intensity: 0.8 });
         g.slowEnemy(e, 0.5, 3);
-        g.damageEnemy(e, 120, 'phys', 'card');
+        g.damageEnemy(e, 120, 'phys', src);
       }
       fx.ring(V(0, 0, 0), 0xd8a060, 25, 1.0);
       break;
@@ -334,7 +340,7 @@ export function castCard(g, id, pos, tower) {
           fx.glow.emit({ x: pos.x + Math.cos(a) * r, y: h, z: pos.z + Math.sin(a) * r, vx: -Math.sin(a) * 4, vy: 2.5, vz: Math.cos(a) * 4, life: 0.5, size: 1.2 - h * 0.1, sizeEnd: 0.2, color: fx.col(Math.random() < 0.3 ? 0xffd257 : 0xff5a1a, 2.5), color2: fx.col(0x661100, 1), drag: 1 });
         }
         if (Math.random() < dt * 4) audio.play('fire', 0.3);
-        for (const e of g.enemiesInRadius(pos, 3, true)) g.damageEnemy(e, 70 * dt, 'magic', 'card', true);
+        for (const e of g.enemiesInRadius(pos, 3, true)) g.damageEnemy(e, 70 * dt, 'magic', src, true);
       });
       fx.light(pos, 0xff6a1a, 6, 10, 6);
       break;
@@ -355,7 +361,7 @@ export function castCard(g, id, pos, tower) {
           fx.light(p, 0x7fd8ff, 6, 8, 0.4);
           fx.shake(0.3);
           iceSpikes(g, p, 1.8, 8, 2.2);
-          freezeArea(g, p, 1.8, 200, 2, 'card');
+          freezeArea(g, p, 1.8, 200, 2, src);
         },
       });
       break;
@@ -373,7 +379,7 @@ export function castCard(g, id, pos, tower) {
       zone(g, pos, 2.2, 3.2, 0xbfd8ff, 1, (dt) => {
         fx.burst(pos.clone().setY(0.2), { count: 4, color: 0xffffff, color2: 0x8ab8ff, intensity: 3, speed: 7, flat: true, life: 0.4, size: 0.5 });
         if (Math.random() < dt * 10) fx.shake(0.05);
-        for (const e of g.enemiesInRadius(pos, 2.2, true)) g.damageEnemy(e, 260 * dt, 'magic', 'card', true);
+        for (const e of g.enemiesInRadius(pos, 2.2, true)) g.damageEnemy(e, 260 * dt, 'magic', src, true);
       }, { onEnd: () => fx.scorch(pos, 2.5) });
       fx.light(pos, 0xbfd8ff, 10, 14, 3.2);
       break;
@@ -420,11 +426,237 @@ export function castCard(g, id, pos, tower) {
             onHit: (p, e) => {
               fx.burst(p, { count: 14, color: 0xe07aff, intensity: 3, speed: 5, life: 0.4, size: 0.6 });
               fx.light(p, 0xe07aff, 2, 5, 0.15);
-              if (e && e.alive) g.damageEnemy(e, 70, 'magic', 'card');
+              if (e && e.alive) g.damageEnemy(e, 70, 'magic', src);
             },
           });
         });
       }
+      break;
+    }
+    case 'inferno': {
+      audio.play('fire');
+      fx.light(pos, 0xff4a1a, 8, 12, 1.2);
+      for (let k = 0; k < 3; k++) {
+        g.later(k * 0.28, () => {
+          const r = 1.5 + k * 1.5;
+          audio.play('explode', 0.7);
+          fx.ring(pos, 0xff6a1a, r + 0.6, 0.45);
+          const n = 6 + k * 5;
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + k;
+            const q = V(pos.x + Math.cos(a) * r, 0.3, pos.z + Math.sin(a) * r);
+            fx.burst(q, { count: 8, color: 0xffd257, color2: 0xff3a0a, intensity: 3, speed: 3, life: 0.6, size: 1.2, sizeEnd: 0.2, up: 4 });
+          }
+          fx.shake(0.25);
+          const inner = k === 0 ? 0 : 1.5 + (k - 1) * 1.5 - 0.3;
+          for (const e of g.enemiesInRadius(pos, r + 0.8, true)) {
+            if (e.pos.distanceTo(pos) < inner) continue;
+            g.damageEnemy(e, 130, 'magic', src); g.burnEnemy(e, 25, 3);
+          }
+        });
+      }
+      g.later(0.9, () => fx.scorch(pos, 4));
+      break;
+    }
+    case 'glacier': {
+      audio.play('freeze');
+      fx.screenFlash('rgba(170,230,255,0.5)', 0.3);
+      iceSpikes(g, pos, 2.2, 22, 5);
+      fx.ring(pos, 0xbfe8ff, 3, 0.5);
+      const wall = { alive: true, takeDamage() {}, pos };
+      zone(g, pos, 2.2, 5, 0xa8e8ff, 1, (dt) => {
+        if (Math.random() < dt * 10) fx.burst(pos.clone().setY(0.5), { count: 2, color: 0xffffff, color2: 0x7fd8ff, intensity: 1.5, speed: 1, life: 1, size: 0.4, radius: 2, up: 0.8 });
+        for (const e of g.enemiesInRadius(pos, 2.2, false)) if (!e.blockedBy && !e.boss) e.blockedBy = wall;
+      }, { onEnd: () => {
+        wall.alive = false;
+        audio.play('freeze');
+        fx.burst(pos.clone().setY(1), { count: 90, color: 0xe0f8ff, color2: 0x5ab8ff, intensity: 2.5, speed: 9, life: 0.8, size: 0.6, gravity: 10, up: 3 });
+        fx.ring(pos, 0x9fe8ff, 3.5, 0.5);
+        fx.shake(0.4);
+        freezeArea(g, pos, 3, 220, 1, src);
+      } });
+      break;
+    }
+    case 'tempest': {
+      audio.play('thunder', 0.6);
+      const cloud = V(pos.x, 9, pos.z);
+      let tick = 0;
+      zone(g, pos, 4, 6, 0x9ab8ff, 1, (dt) => {
+        for (let i = 0; i < 3; i++) fx.burst(V(cloud.x + rand(-4, 4), cloud.y + rand(-0.6, 0.6), cloud.z + rand(-4, 4)), { count: 1, color: 0x3a4060, smoke: true, speed: 0.4, life: 1.2, size: 3.5, sizeEnd: 4.5, alpha: 0.35 });
+        if (Math.random() < dt * 6) fx.burst(V(cloud.x + rand(-3, 3), cloud.y, cloud.z + rand(-3, 3)), { count: 2, color: 0xa8c8ff, intensity: 3, speed: 2, life: 0.2, size: 1.2 });
+        tick += dt;
+        if (tick >= 0.4) {
+          tick = 0;
+          const pool = g.enemiesInRadius(pos, 4, true);
+          const e = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+          const hp = e ? e.centerClone() : V(pos.x + rand(-3, 3), 0, pos.z + rand(-3, 3));
+          fx.lightning(V(hp.x + rand(-1, 1), cloud.y, hp.z + rand(-1, 1)), hp, 0xb8c8ff, 0.2, 0.25);
+          fx.light(hp, 0x9ab8ff, 4, 7, 0.15);
+          audio.play('zap', 0.6);
+          if (e) { g.damageEnemy(e, 120, 'magic', src); g.stunEnemy(e, 0.2); }
+        }
+      });
+      break;
+    }
+    case 'static': {
+      audio.play('zap');
+      const inside = new Set();
+      zone(g, pos, 3, 5, 0xc8d8ff, 1, (dt) => {
+        if (Math.random() < dt * 8) {
+          const a1 = Math.random() * Math.PI * 2, a2 = a1 + rand(0.5, 2);
+          fx.lightning(V(pos.x + Math.cos(a1) * 2.8, 0.3, pos.z + Math.sin(a1) * 2.8), V(pos.x + Math.cos(a2) * 2.8, 0.3, pos.z + Math.sin(a2) * 2.8), 0xc8d8ff, 0.06, 0.15, false);
+        }
+        const now = new Set(g.enemiesInRadius(pos, 3, true));
+        for (const e of now) { e.zoneSlow = Math.min(e.zoneSlow || 1, 0.65); g.damageEnemy(e, 45 * dt, 'magic', src, true); }
+        for (const e of inside) if (!now.has(e) && e.alive) { g.stunEnemy(e, 0.6); fx.burst(e.centerClone(), { count: 8, color: 0xc8d8ff, intensity: 3, speed: 3, life: 0.3, size: 0.4 }); }
+        inside.clear(); now.forEach((e) => inside.add(e));
+      });
+      break;
+    }
+    case 'echo': {
+      const last = g.lastCard;
+      if (!last || g.hand.length >= g.maxHand) { g.ui.toast(!last ? '还没有可以回响的卡牌' : '手牌已满'); return false; }
+      audio.play('magic');
+      g.hand.push(last);
+      g.ui.toast(`🔁 回响：「${CARDS[last].name}」加入手牌`);
+      fx.sigil(g.world.basePos, 0xd0a0ff, 3, 1);
+      break;
+    }
+    case 'thorns': {
+      audio.play('void', 0.4);
+      const vines = new THREE.Group();
+      const vm = mat(0x4a8a2a, { emissive: 0x2a6a1a, ei: 0.6 });
+      for (let i = 0; i < 16; i++) {
+        const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 3;
+        const sp = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.9 + Math.random() * 0.6, 4), vm);
+        sp.position.set(pos.x + Math.cos(a) * r, 0, pos.z + Math.sin(a) * r);
+        sp.rotation.set(rand(-0.6, 0.6), 0, rand(-0.6, 0.6));
+        vines.add(sp);
+      }
+      g.scene.add(vines);
+      zone(g, pos, 3.2, 7, 0x7adf5a, 1, (dt, z) => {
+        const k = Math.min(1, z.t * 4) * (z.t > 6.6 ? (7 - z.t) / 0.4 : 1);
+        vines.children.forEach((v) => { v.scale.y = Math.max(0.01, k); v.position.y = 0.4 * k; });
+        if (Math.random() < dt * 8) fx.burst(pos.clone().setY(0.2), { count: 1, color: 0x9aff6a, intensity: 2, speed: 0.5, life: 1, size: 0.4, radius: 3, up: 1 });
+        for (const e of g.enemiesInRadius(pos, 3.2, false)) {
+          e.zoneSlow = Math.min(e.zoneSlow || 1, 0.6);
+          // 荆棘伤害为“真实伤害”，无视相位与护甲
+          g.damageEnemy(e, 45 * dt, 'true', src, true);
+        }
+      }, { onEnd: () => { g.scene.remove(vines); vines.children.forEach((v) => v.geometry.dispose()); } });
+      break;
+    }
+    case 'treant': {
+      summonFx(g, pos, 0x8ad870);
+      fx.burst(pos.clone().setY(0.2), { count: 40, color: 0x6a4a2a, smoke: true, speed: 3, flat: true, life: 1, size: 1.4, sizeEnd: 2.5, alpha: 0.5 });
+      g.units.push(new Unit(g, 'summon', 'treant', pos.clone().setY(0), 28));
+      fx.shake(0.4);
+      break;
+    }
+    case 'smite': {
+      audio.play('heal');
+      audio.play('thunder', 0.5);
+      fx.pillar(pos, 0xfff0a0, 2.2, 30, 0.7, 0.04);
+      fx.pillar(pos, 0xffffff, 0.8, 30, 0.6, 0.04);
+      fx.flashSphere(pos, 0xffe080, 2.5, 0.4);
+      fx.ring(pos, 0xfff0a0, 3.5, 0.5);
+      fx.burst(pos.clone().setY(0.5), { count: 60, color: 0xffffff, color2: 0xffd257, intensity: 3, speed: 8, flat: true, life: 0.6, size: 0.6 });
+      fx.screenFlash('rgba(255,245,200,0.6)', 0.3);
+      fx.shake(0.4);
+      for (const e of g.enemiesInRadius(pos, 2.2, true)) g.damageEnemy(e, (e.boss || e.def.phase) ? 480 : 240, 'true', src);
+      break;
+    }
+    case 'sanctuary': {
+      audio.play('heal');
+      fx.pillar(pos, 0xffe8a8, 3.8, 4, 8, 0.4);
+      zone(g, pos, 4, 8, 0xffe8a8, 1, (dt) => {
+        if (Math.random() < dt * 12) fx.burst(pos.clone().setY(0.1), { count: 1, color: 0xfff2c8, intensity: 2, speed: 0.3, life: 1.6, size: 0.5, radius: 3.5, up: 1.5 });
+        for (const u of g.units) {
+          if (!u.alive || u.flying || u.pos.distanceToSquared(pos) > 16) continue;
+          u.heal(60 * g.healMul * dt);
+          u.sancUntil = g.time + 0.3;
+        }
+        for (const e of g.enemiesInRadius(pos, 4, true)) e.sanctified = g.time + 0.3;
+      });
+      break;
+    }
+    case 'armageddon': {
+      audio.play('meteor');
+      fx.screenFlash('rgba(255,120,40,0.6)', 0.6);
+      g.ui.banner('🔥 天启降临', '#ff7a1a');
+      for (let i = 0; i < 14; i++) {
+        g.later(0.2 + i * 0.16, () => {
+          const alive = g.enemies.filter((e) => e.alive);
+          const e = alive.length ? alive[Math.floor(Math.random() * alive.length)] : null;
+          const tp = e ? V(e.pos.x, 0, e.pos.z) : V(rand(-18, 18), 0, rand(-12, 12));
+          const rock = () => new THREE.Mesh(new THREE.DodecahedronGeometry(0.8, 0), mat(0x3a2020, { emissive: 0xff4a1a, ei: 1.5 }));
+          skyStrike(g, tp, {
+            color: 0xff6a1a, size: 0.7, speed: 34, height: 26, offset: 12, meshFn: rock,
+            onHit: (q) => {
+              q.y = 0;
+              fx.explosion(q, 0xff5a1a, 1.4);
+              fx.shake(0.5);
+              audio.play('explode', 0.6);
+              for (const en of g.enemiesInRadius(q, 2.4, true)) { g.damageEnemy(en, 400, 'magic', src); g.burnEnemy(en, 30, 4); }
+            },
+          });
+        });
+      }
+      break;
+    }
+    case 'apotheosis': {
+      const h = g.selectedHero && g.selectedHero.alive ? g.selectedHero : g.units.find((u) => u.kind === 'hero' && u.alive);
+      if (!h) { g.ui.toast('需要一名存活的英雄'); return false; }
+      audio.play('levelup');
+      audio.play('summon');
+      h.avatarUntil = g.time + 12;
+      h.cds = [0, 0, 0];
+      h.heal(h.maxHp);
+      fx.pillar(h.pos, 0xffe066, 2, 40, 1.5, 0.1);
+      fx.sigil(h.pos, 0xffe066, 4, 2, { spin: 4 });
+      fx.burst(h.pos.clone().setY(1), { count: 120, color: 0xffffff, color2: 0xffd257, intensity: 3, speed: 9, life: 1.2, size: 0.8, up: 3 });
+      fx.screenFlash('rgba(255,240,170,0.8)', 0.5);
+      fx.shake(0.6);
+      g.ui.banner(`👑 ${h.def.name} 神威降临`, '#ffe066');
+      break;
+    }
+    case 'maelstrom': {
+      audio.play('thunder');
+      audio.play('void', 0.5);
+      fx.screenFlash('rgba(170,190,255,0.7)', 0.4);
+      const cage = new THREE.Group();
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 7, 4), glowMat(0xa0c0ff, 3));
+        bar.position.set(pos.x + Math.cos(a) * 6, 3.5, pos.z + Math.sin(a) * 6);
+        cage.add(bar);
+      }
+      g.scene.add(cage);
+      let tick = 0;
+      zone(g, pos, 6, 5, 0xa0c0ff, 1, (dt, z) => {
+        cage.rotation.y = 0;
+        const k = Math.min(1, z.t * 3) * (z.t > 4.6 ? (5 - z.t) / 0.4 : 1);
+        cage.children.forEach((b) => { b.scale.y = Math.max(0.01, k); });
+        fx.vortex(pos, 0xa0c0ff, 6, 4, { swirl: 8, inward: 0.6, h: 5, life: 0.7, size: 0.4 });
+        tick += dt;
+        if (tick > 0.15) {
+          tick = 0;
+          const a1 = Math.random() * Math.PI * 2;
+          fx.lightning(V(pos.x + Math.cos(a1) * 6, rand(1, 6), pos.z + Math.sin(a1) * 6), V(pos.x + rand(-3, 3), rand(0.3, 2), pos.z + rand(-3, 3)), 0xa0c0ff, 0.12, 0.2, false);
+          audio.play('zap', 0.3);
+        }
+        for (const e of g.enemiesInRadius(pos, 6, true)) {
+          e.zoneSlow = 0.02;
+          g.damageEnemy(e, 300 * dt, 'magic', src, true);
+          if (Math.random() < dt * 2) fx.lightning(V(e.pos.x, 12, e.pos.z), e.centerClone(), 0xc8d8ff, 0.15, 0.2, false);
+        }
+      }, { onEnd: () => {
+        g.scene.remove(cage); cage.children.forEach((b) => b.geometry.dispose());
+        fx.flashSphere(pos, 0xa0c0ff, 6, 0.5);
+        fx.ring(pos, 0xc8d8ff, 8, 0.6);
+        fx.shake(0.7);
+        audio.play('bigexplode', 0.6);
+      } });
       break;
     }
     default: return false;
@@ -452,7 +684,8 @@ export function skillRadius(heroId, idx) {
 export function castSkill(g, hero, idx, target) {
   const fx = g.fx;
   const p = hero.pos.clone();
-  const m = hero.dmgMul;
+  let m = hero.dmgMul * rankMul(hero.ranks[idx]);
+  if (hero.id === 'pyro' && g.tiers.fire >= 2) m *= 1.3;
   // 限制施法距离
   let pos = target.clone();
   const range = skillRange(hero.id, idx);
@@ -479,7 +712,7 @@ export function castSkill(g, hero, idx, target) {
       fx.ring(p, 0xffd257, 5, 0.7);
       for (const u of g.units) {
         if (!u.alive || u.flying || u.pos.distanceToSquared(p) > 25) continue;
-        u.heal(220);
+        u.heal(220 * rankMul(hero.ranks[1]) * g.healMul);
         u.drUntil = g.time + 4;
         fx.burst(u.pos.clone().setY(1), { count: 20, color: 0xfff2a8, intensity: 3, speed: 2, life: 1, size: 0.6, up: 2 });
       }
@@ -574,7 +807,7 @@ export function castSkill(g, hero, idx, target) {
       targets.forEach((e, i) => {
         g.later(i * 0.04, () => {
           audio.play('arrow', 0.6);
-          g.spawnProjectile({ from: p.clone().setY(1.6), target: e, speed: 34, kind: 'arrow', color: 0x7affaa, onHit: (hp, tg) => { if (tg && tg.alive) g.damageEnemy(tg, 75 * m, 'phys', hero); fx.burst(hp, { count: 10, color: 0x7affaa, intensity: 3, speed: 4, life: 0.3, size: 0.5 }); } });
+          g.spawnProjectile({ from: p.clone().setY(1.6), target: e, speed: 34, kind: 'arrow', color: 0x7affaa, onHit: (hp, tg) => { if (tg && tg.alive) { hero.critNext = Math.random() < 0.2; g.damageEnemy(tg, 75 * m, 'phys', hero); hero.critNext = false; } fx.burst(hp, { count: 10, color: 0x7affaa, intensity: 3, speed: 4, life: 0.3, size: 0.5 }); } });
         });
       });
       break;

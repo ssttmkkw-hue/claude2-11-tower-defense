@@ -1,6 +1,6 @@
 // ============ 游戏内 HUD ============
 import * as THREE from 'three';
-import { TOWERS, TOWER_ORDER, HEROES, HERO_ORDER, CARDS, RARITY, MAX_HEROES } from './data.js';
+import { TOWERS, TOWER_ORDER, HEROES, HERO_ORDER, CARDS, RARITY, MAX_HEROES, SCHOOLS, SCHOOL_ORDER, RELICS, ENEMIES, SKILL_MAX, skillReq, rankMul, rankCd, wavePreview, schoolCounts } from './data.js';
 import { audio } from './audio.js';
 
 export function cardHTML(id, extra = '') {
@@ -12,6 +12,7 @@ export function cardHTML(id, extra = '') {
     <div class="card-name">${c.name}</div>
     <div class="card-desc">${c.desc}</div>
     <div class="card-rarity">${r.name}</div>
+    ${c.school ? `<div class="card-school" style="--sc:${SCHOOLS[c.school].color}" title="${SCHOOLS[c.school].name}流派">${SCHOOLS[c.school].icon}</div>` : ''}
   </div>`;
 }
 
@@ -41,6 +42,8 @@ export class GameUI {
         <div class="stat" title="金币"><span class="ico">💰</span><b id="st-gold"></b></div>
         <div class="stat" title="波次"><span class="ico">🌊</span><b id="st-wave"></b></div>
         <div class="stat map-name">${g.map.name}</div>
+        <div class="relic-bar" id="relic-bar"></div>
+        <div class="syn-bar" id="syn-bar"></div>
         <div class="spacer"></div>
         <button class="btn small" id="bt-speed" title="游戏速度">▶ x1</button>
         <button class="btn small" id="bt-sound" title="声音">🔊</button>
@@ -57,13 +60,15 @@ export class GameUI {
       <div class="hand-area">
         <div class="mana-wrap">
           <div class="mana-orb"><span id="mana-num">0</span></div>
-          <div class="mana-track"><div class="mana-fill" id="mana-fill"></div><div class="mana-ticks">${'<i></i>'.repeat(10)}</div></div>
+          <div class="mana-track"><div class="mana-fill" id="mana-fill"></div><div class="mana-ticks" id="mana-ticks">${'<i></i>'.repeat(10)}</div></div>
         </div>
+        <div class="combo-timer hidden" id="combo-timer"></div>
         <div class="hand" id="hand"></div>
         <div class="pile-info"><span title="抽牌堆">🂠 <b id="pile-draw"></b></span><span title="弃牌堆">🗑 <b id="pile-disc"></b></span></div>
       </div>
+      <div class="wave-preview" id="wave-preview"></div>
       <button class="btn primary wave-btn" id="bt-wave">⚔ 开始第 1 波 <small>(空格)</small></button>
-      <div class="help-tip">左键：选择/移动英雄 · 右键：移动/取消 · WASD：操控英雄 · Q/E/R：技能 · 1-7：出牌 · Tab：切换英雄 · 方向键/滚轮：镜头</div>
+      <div class="help-tip">左键：选择/移动 · 点敌人：集火 · WASD：操控 · 按住 Q/E/R 瞄准松开施放 · Shift+Q/E/R：学习技能 · H：坚守 · 1-9：出牌</div>
       <div class="banner" id="banner"></div>
       <div class="toasts" id="toasts"></div>
       <div class="floats" id="floats"></div>
@@ -76,7 +81,7 @@ export class GameUI {
     this.buildBtns = {};
     for (const type of TOWER_ORDER) {
       const d = TOWERS[type];
-      const b = el('button', 'build-btn', `<span class="bi">${d.icon}</span><span class="bn">${d.name}</span><span class="bc">💰${d.levels[0].cost}</span>`);
+      const b = el('button', 'build-btn', `<span class="bi">${d.icon}</span><span class="bn">${d.name}</span><span class="bc">💰${g.towerCost(type, 0)}</span>`);
       b.title = d.desc;
       b.addEventListener('click', () => {
         audio.play('click');
@@ -96,7 +101,7 @@ export class GameUI {
       const b = el('button', 'hero-btn', `<div class="hp-face" style="--hc:#${d.color.toString(16).padStart(6, '0')}">${d.icon}</div>
         <div class="hero-info"><div class="hn">${d.name}</div><div class="hbar"><i></i></div><div class="hs"></div></div>`);
       b.addEventListener('click', () => g.summonOrSelectHero(id));
-      b.addEventListener('mouseenter', () => this.tooltip(b, `<b>${d.icon} ${d.title} · ${d.name}</b><br>${d.desc}<br>生命 ${d.hp} · 攻击 ${d.atk} · 召唤 💰${d.cost}<hr>${d.skills.map((s) => `<b>[${s.key}] ${s.icon} ${s.name}</b> (${s.cd}秒)<br><small>${s.desc}</small>`).join('<br>')}`));
+      b.addEventListener('mouseenter', () => this.tooltip(b, `<b>${d.icon} ${d.title} · ${d.name}</b><br>${d.desc}<br>生命 ${d.hp} · 攻击 ${d.atk} · 召唤 💰${d.cost}<hr><b>被动 ${d.passive.icon} ${d.passive.name}</b><br><small>${d.passive.desc}</small><br>${d.skills.map((s) => `<b>[${s.key}] ${s.icon} ${s.name}</b> (${s.cd}秒)<br><small>${s.desc}</small>`).join('<br>')}<hr><small>升级获得技能点：Shift+Q/E/R 学习。终极技能 3 级解锁。</small>`));
       b.addEventListener('mouseleave', () => this.tooltip(null));
       hl.appendChild(b);
       this.heroBtns[id] = b;
@@ -112,6 +117,8 @@ export class GameUI {
       $('bt-sound').textContent = audio.muted ? '🔇' : '🔊';
     });
     $('bt-pause').addEventListener('click', () => this.togglePause());
+    this.renderRelics();
+    this.renderSynergies();
     this.tip = el('div', 'tooltip hidden');
     this.root.appendChild(this.tip);
   }
@@ -187,21 +194,93 @@ export class GameUI {
     const h = g.selectedHero;
     if (!h) { sb.innerHTML = '<div class="skill-hint">点击头像召唤英雄</div>'; return; }
     const d = HEROES[h.id];
+    const pv = el('div', 'passive-ico', d.passive.icon);
+    pv.addEventListener('mouseenter', () => this.tooltip(pv, `<b>被动：${d.passive.name}</b><br>${d.passive.desc}`));
+    pv.addEventListener('mouseleave', () => this.tooltip(null));
+    sb.appendChild(pv);
     d.skills.forEach((s, i) => {
-      const b = el('button', 'skill-btn', `<span class="si">${s.icon}</span><span class="sk">${s.key}</span><div class="cd"></div><span class="cdt"></span>`);
-      b.addEventListener('click', () => g.castHeroSkill(i));
-      b.addEventListener('mouseenter', () => { this.hoverSkill = i; this.tooltip(b, `<b>[${s.key}] ${s.name}</b> · 冷却 ${s.cd} 秒<br>${s.desc}<br><small>技能朝鼠标位置释放</small>`); });
+      const rank = h.ranks[i];
+      const canLearn = h.skillPts > 0 && rank < SKILL_MAX[i] && h.level >= skillReq(i, rank + 1);
+      const pips = Array.from({ length: SKILL_MAX[i] }, (_, k) => `<i class="${k < rank ? 'on' : ''}"></i>`).join('');
+      const b = el('button', `skill-btn ${rank === 0 ? 'locked' : ''}`, `<span class="si">${s.icon}</span><span class="sk">${s.key}</span><div class="cd"></div><span class="cdt"></span><div class="pips">${pips}</div>${canLearn ? '<div class="learn" title="学习 (Shift+' + s.key + ')">+</div>' : ''}`);
+      b.addEventListener('click', (e) => {
+        if (e.target.classList.contains('learn')) { g.learnSkill(h, i); return; }
+        if (g.aimSkill === i) { g.cancelModes(); return; }
+        this.aimFromButton = true;
+        g.beginAim(i);
+      });
+      b.addEventListener('mouseenter', () => {
+        this.hoverSkill = i;
+        const cd = (s.cd * rankCd(Math.max(1, rank))).toFixed(1);
+        const nextReq = rank < SKILL_MAX[i] ? skillReq(i, rank + 1) : 0;
+        this.tooltip(b, `<b>[${s.key}] ${s.name}</b> · ${rank ? `${rank} 级` : '未学习'} · 冷却 ${cd} 秒<br>${s.desc}<br><small>当前威力 ×${rankMul(Math.max(1, rank)).toFixed(1)}；每级伤害/治疗 +30%、冷却 -8%</small><br><small>${rank < SKILL_MAX[i] ? `下一级需要英雄 Lv.${nextReq}（可用技能点 ${h.skillPts}）` : '已满级'}</small><br><small>按住 ${s.key} 瞄准、松开施放；或点击按钮后点击地面</small>`);
+      });
       b.addEventListener('mouseleave', () => { this.hoverSkill = -1; this.tooltip(null); });
       sb.appendChild(b);
     });
+    if (h.skillPts > 0) sb.appendChild(el('div', 'pts-badge', `${h.skillPts}`));
     this.skillEls = [...sb.querySelectorAll('.skill-btn')];
+    this.lastPts = h.skillPts;
+  }
+
+  renderRelics() {
+    const g = this.game;
+    const bar = this.$('relic-bar');
+    if (!bar) return;
+    bar.innerHTML = '';
+    for (const id of g.relics) {
+      const r = RELICS[id];
+      const d = el('div', 'relic', r.icon);
+      d.addEventListener('mouseenter', () => this.tooltip(d, `<b>${r.icon} ${r.name}</b><br>${r.desc}`));
+      d.addEventListener('mouseleave', () => this.tooltip(null));
+      bar.appendChild(d);
+    }
+  }
+
+  renderSynergies() {
+    const g = this.game;
+    const bar = this.$('syn-bar');
+    if (!bar) return;
+    bar.innerHTML = '';
+    const counts = schoolCounts(g.deck);
+    for (const k of SCHOOL_ORDER) {
+      if (!counts[k]) continue;
+      const S = SCHOOLS[k];
+      const tier = g.tiers[k];
+      const d = el('div', `syn tier${tier}`, `${S.icon}<b>${counts[k]}</b>`);
+      d.style.setProperty('--sc', S.color);
+      d.addEventListener('mouseenter', () => this.tooltip(d, `<b>${S.icon} ${S.name}流派</b>（卡组中 ${counts[k]} 张）<br>${S.tiers.map((t, i) => `<span style="opacity:${i < tier ? 1 : 0.45}">${i < tier ? '✔' : '○'} [${t.n}] ${t.desc}</span>`).join('<br>')}<br><small>连续打出同流派卡牌触发连携，伤害逐层 +15%</small>`));
+      d.addEventListener('mouseleave', () => this.tooltip(null));
+      bar.appendChild(d);
+    }
+  }
+
+  comboFx(n, school) {
+    const f = el('div', 'combo-pop', `${school.icon} 连携 ×${n}<small>伤害 +${(n - 1) * 15}%</small>`);
+    f.style.setProperty('--sc', school.color);
+    this.root.appendChild(f);
+    setTimeout(() => f.remove(), 1300);
+    audio.play('magic', 0.5 + n * 0.1);
+  }
+
+  renderWavePreview() {
+    const g = this.game;
+    const box = this.$('wave-preview');
+    if (g.state !== 'build' || g.wave >= g.map.waves) { box.classList.add('hidden'); return; }
+    const pv = wavePreview(g.map, g.wave + 1);
+    box.classList.remove('hidden');
+    box.innerHTML = `<div class="wp-title">下一波</div>` + Object.entries(pv).map(([t, c]) => {
+      const e = ENEMIES[t];
+      const tags = [e.flying ? '飞行' : '', e.armor >= 0.4 ? '重甲' : '', e.mres >= 0.3 ? '魔抗' : '', e.phase ? '相位' : '', e.healer ? '治疗' : '', e.splits ? '分裂' : ''].filter(Boolean).join(' ');
+      return `<span class="wp-e ${e.boss ? 'boss' : ''}" title="${e.name}${tags ? '（' + tags + '）' : ''}">${e.icon}<b>×${c}</b></span>`;
+    }).join('');
   }
 
   updateBuildButtons() {
     const g = this.game;
     for (const [type, b] of Object.entries(this.buildBtns)) {
       b.classList.toggle('active', g.buildType === type);
-      b.classList.toggle('disabled', g.gold < TOWERS[type].levels[0].cost);
+      b.classList.toggle('disabled', g.gold < g.towerCost(type, 0));
     }
   }
 
@@ -210,7 +289,7 @@ export class GameUI {
     const p = this.$('tower-panel');
     p.classList.remove('hidden');
     const d = t.def;
-    const next = t.level < 2 ? d.levels[t.level + 1] : null;
+    const next = t.level < 2 ? { ...d.levels[t.level + 1], cost: g.towerCost(t.type, t.level + 1) } : null;
     p.innerHTML = `
       <div class="tp-title">${d.icon} ${d.name} <span class="lv">Lv.${t.level + 1}</span></div>
       <div class="tp-stats">${statLine(d, t.level, t.dmgMul)}${t.kills ? `<br>击杀：${t.kills}` : ''}</div>
@@ -246,6 +325,7 @@ export class GameUI {
     const show = g.state === 'build';
     wb.classList.toggle('hidden', !show);
     if (show) wb.innerHTML = `⚔ 开始第 ${g.wave + 1} 波 <small>(空格)</small>`;
+    if (force || this.lastPreviewWave !== g.wave + ':' + g.state) { this.lastPreviewWave = g.wave + ':' + g.state; this.renderWavePreview(); }
     this.updateBuildButtons();
     // 英雄状态
     for (const id of HERO_ORDER) {
@@ -255,7 +335,7 @@ export class GameUI {
       const hs = b.querySelector('.hs');
       if (h) {
         bar.style.width = `${(h.hp / h.maxHp) * 100}%`;
-        hs.textContent = h.alive ? `Lv.${h.level}` : `复活 ${Math.ceil(h.respawn)}s`;
+        hs.textContent = h.alive ? `Lv.${h.level}${h.skillPts ? ` · ✦${h.skillPts}` : ''}${h.focus ? ' · 🎯' : ''}${h.holdPos ? ' · 🛡坚守' : ''}` : `复活 ${Math.ceil(h.respawn)}s`;
       } else {
         bar.style.width = '0%';
         hs.textContent = g.heroCount() >= MAX_HEROES ? '队伍已满' : `召唤 💰${HEROES[id].cost}`;
@@ -263,6 +343,7 @@ export class GameUI {
       }
       if (h && h.alive === b.classList.contains('dead')) this.renderHeroes();
     }
+    if (g.selectedHero && g.selectedHero.skillPts !== this.lastPts) this.renderHeroes();
     if (this.panelTower && this.panelGold !== g.gold) this.showTowerPanel(this.panelTower);
   }
 
@@ -274,7 +355,8 @@ export class GameUI {
     const mi = Math.floor(m);
     if (mi !== this.lastManaInt) {
       this.lastManaInt = mi;
-      this.$('mana-num').textContent = mi;
+      this.$('mana-num').textContent = g.maxMana > 10 ? `${mi}` : mi;
+      if (this.lastMaxMana !== g.maxMana) { this.lastMaxMana = g.maxMana; this.$('mana-ticks').innerHTML = '<i></i>'.repeat(g.maxMana); }
       const cards = this.$('hand').querySelectorAll('.card');
       cards.forEach((c, i) => c.classList.toggle('unaffordable', g.mana < CARDS[g.hand[i]].cost));
     }
@@ -287,8 +369,22 @@ export class GameUI {
         const k = cd / d.skills[i].cd;
         b.querySelector('.cd').style.height = `${k * 100}%`;
         b.querySelector('.cdt').textContent = cd > 0 ? Math.ceil(cd) : '';
-        b.classList.toggle('ready', cd <= 0 && h.alive);
+        b.classList.toggle('ready', cd <= 0 && h.alive && h.ranks[i] > 0);
+        b.classList.toggle('aiming', g.aimSkill === i);
       });
+    }
+    if (g.aimSkill < 0) this.aimFromButton = false;
+    // 连携计时
+    const cb = this.$('combo-timer');
+    if (cb) {
+      const c = g.combo;
+      const active = c.n >= 1 && g.time < c.until;
+      cb.classList.toggle('hidden', !active);
+      if (active) {
+        const S = SCHOOLS[c.school];
+        cb.style.setProperty('--sc', S.color);
+        cb.innerHTML = `${S.icon} 连携 ${c.n}/${g.comboMax}<i style="width:${((c.until - g.time) / g.comboWindow) * 100}%"></i>`;
+      }
     }
     // 首领血条
     if (this.boss) {
@@ -343,7 +439,8 @@ export class GameUI {
     o.innerHTML = `<div class="reward-box">
       <h2>✨ 第 ${this.game.wave} 波胜利！选择一张卡牌加入卡组</h2>
       <div class="reward-cards">${ids.map((id) => cardHTML(id)).join('')}</div>
-      <button class="btn" id="rw-skip">跳过（+35 金币）</button>
+      <div class="rw-btns"><button class="btn" id="rw-thin">✂ 改为精简卡组（移除一张）</button><button class="btn" id="rw-skip">跳过（+35 金币）</button></div>
+      <div class="thin-list hidden" id="rw-thin-list"></div>
     </div>`;
     o.querySelectorAll('.card').forEach((c, i) => {
       c.style.animationDelay = `${i * 0.12}s`;
@@ -356,6 +453,48 @@ export class GameUI {
       }, { once: true });
     });
     o.querySelector('#rw-skip').addEventListener('click', () => { audio.play('click'); o.classList.add('hidden'); o.innerHTML = ''; cb(null); this.renderHand(); });
+    o.querySelector('#rw-thin').addEventListener('click', () => {
+      audio.play('click');
+      const g = this.game;
+      const list = o.querySelector('#rw-thin-list');
+      if (g.deck.length <= 8) { this.toast('卡组至少保留 8 张'); return; }
+      list.classList.toggle('hidden');
+      const uniq = [...new Set(g.deck)].sort((a, b) => CARDS[a].cost - CARDS[b].cost);
+      list.innerHTML = '<div class="wp-title">点击要移除的卡牌（本局有效）</div>' + uniq.map((id) => {
+        const c = CARDS[id];
+        return `<div class="deck-row" data-id="${id}" style="--cc:${c.color};--rc:${RARITY[c.rarity].color}"><span class="dr-cost">${c.cost}</span><span class="dr-icon">${c.icon}</span><span class="dr-name">${c.name}</span><span class="dr-n">×${g.deck.filter((x) => x === id).length}</span></div>`;
+      }).join('');
+      list.querySelectorAll('.deck-row').forEach((r) => r.addEventListener('click', () => {
+        audio.play('sell');
+        o.classList.add('hidden'); o.innerHTML = '';
+        cb(null, r.dataset.id);
+        this.renderHand();
+      }, { once: true }));
+    });
+  }
+
+  showRelicChoice(ids, title, cb, skipLabel = null) {
+    const o = this.$('overlay');
+    o.classList.remove('hidden');
+    o.innerHTML = `<div class="reward-box">
+      <h2>${title}</h2>
+      <p class="rw-sub">遗物在本局持续生效</p>
+      <div class="reward-cards relics">${ids.map((id) => {
+        const r = RELICS[id];
+        return `<div class="relic-card" data-id="${id}"><div class="rc-icon">${r.icon}</div><div class="rc-name">${r.name}</div><div class="rc-desc">${r.desc}</div></div>`;
+      }).join('')}</div>
+      ${skipLabel ? `<button class="btn" id="rl-skip">${skipLabel}</button>` : ''}
+    </div>`;
+    o.querySelectorAll('.relic-card').forEach((c, i) => {
+      c.style.animationDelay = `${i * 0.12}s`;
+      c.addEventListener('mouseenter', () => audio.play('hover'));
+      c.addEventListener('click', () => {
+        c.classList.add('picked');
+        setTimeout(() => { o.classList.add('hidden'); o.innerHTML = ''; cb(c.dataset.id); }, 400);
+      }, { once: true });
+    });
+    const sk = o.querySelector('#rl-skip');
+    if (sk) sk.addEventListener('click', () => { audio.play('click'); o.classList.add('hidden'); o.innerHTML = ''; cb(null); });
   }
 
   showEnd(win) {
@@ -369,6 +508,8 @@ export class GameUI {
       <div class="end-stats">
         <div><b>${s.kills}</b><span>击杀</span></div>
         <div><b>${s.cardsPlayed}</b><span>使用卡牌</span></div>
+        <div><b>${s.maxCombo}</b><span>最高连携</span></div>
+        <div><b>${g.relics.map((r) => RELICS[r].icon).join('') || '—'}</b><span>遗物</span></div>
         <div><b>${s.goldEarned}</b><span>获得金币</span></div>
         <div><b>${g.towers.length}</b><span>防御塔</span></div>
       </div>

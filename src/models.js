@@ -569,6 +569,30 @@ export function makeSummon(kind) {
       body.add(l);
       parts.legs.push(l);
     }
+  } else if (kind === 'treant') {
+    const bark = mat(0x6a4a2a);
+    const leaf = mat(0x4aa83a, { emissive: 0x2a8a1a, ei: 0.4 });
+    body.add(mesh(G.cyl(0.45, 0.6, 1.8, 7), bark, 0, 1.0, 0));
+    body.add(mesh(G.dod(0.95), leaf, 0, 2.4, 0));
+    body.add(mesh(G.dod(0.6), leaf, 0.55, 2.0, 0.2));
+    body.add(mesh(G.dod(0.55), leaf, -0.5, 2.1, -0.1));
+    eyes(body, 1.45, 0.42, 0.16, 0.07, 0x9aff6a, true);
+    parts.arms = [];
+    for (const sx of [-1, 1]) {
+      const arm = new THREE.Group();
+      arm.position.set(sx * 0.55, 1.5, 0);
+      const br = mesh(G.cyl(0.1, 0.16, 1.1, 5), bark, sx * 0.25, -0.4, 0.1);
+      br.rotation.z = sx * 0.5;
+      arm.add(br);
+      body.add(arm);
+      parts.arms.push(arm);
+    }
+    parts.legs = [];
+    for (const sx of [-1, 1]) {
+      const l = mesh(G.cyl(0.14, 0.22, 0.5, 5), bark, sx * 0.28, 0.2, 0);
+      body.add(l);
+      parts.legs.push(l);
+    }
   } else if (kind === 'phoenix') {
     body.add(mesh(G.sph(0.4, 8, 6).scale(1, 0.9, 1.5), glowMat(0xff8a2a, 2.5), 0, 0, 0, false));
     body.add(mesh(G.cone(0.15, 0.4, 5).rotateX(Math.PI / 2), glowMat(0xffd257, 3), 0, 0.1, 0.75, false));
