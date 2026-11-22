@@ -521,3 +521,9 @@ button { touch-action: manipulation; }
 .wave-preview { cursor: help; }
 .banner .bs { letter-spacing: 1px; }
 .compact.landscape .banner { top: 34%; }
+#ui .hud .danger-vignette, #ui .hud .drag-ghost, #ui .hud .combo-pop, #ui .hud .floats { pointer-events: none !important; }
+@media (max-width: 390px) {
+  .compact .stat { padding: 3px 6px; font-size: 13px; }
+  .compact .topbar { gap: 4px; }
+  .compact .topbar .btn.small { min-width: 34px; padding: 0 6px; font-size: 13px; }
+}
