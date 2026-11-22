@@ -60,7 +60,7 @@ export class Enemy {
     this.height = this.flying ? 2.6 : 0;
     const bw = this.boss ? 2.6 : 1.1;
     this.bar = makeHpBar(this.boss ? 0xff4040 : 0xff6a4a, bw);
-    this.bar.position.y = (this.boss ? 4.2 : 1.9) + (this.flying ? 0 : 0);
+    this.bar.position.y = this.boss ? this.def.size * 3.2 : this.def.size * 2.4 + 0.4;
     this.barHolder = new THREE.Group();
     this.barHolder.add(this.bar);
     game.scene.add(this.mesh);
@@ -510,7 +510,7 @@ export class Unit {
       this.mesh.add(this.selRing);
       this.selRing.visible = false;
       this.bar = makeHpBar(0x5aff7a, 1.3);
-      this.bar.position.y = 2.6;
+      this.bar.position.y = 3.0;
     } else {
       this.bar = makeHpBar(0x5ac8ff, 1.0);
       this.bar.position.y = this.id === 'golem' ? 3 : 1.8;
@@ -562,7 +562,8 @@ export class Unit {
     this.alive = true;
     this.hp = this.maxHp;
     this.respawn = 0;
-    this.pos.copy(g.world.basePos);
+    const path = g.world.paths[0];
+    path.at(path.length - 4, this.pos);
     this.pos.y = 0;
     this.anchor.copy(this.pos);
     this.moveTarget = null;

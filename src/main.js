@@ -31,7 +31,7 @@ class App {
     this.scene = null;
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(new THREE.Scene(), this.camera);
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.75, 0.55, 0.82);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.7, 0.55, 0.9);
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());

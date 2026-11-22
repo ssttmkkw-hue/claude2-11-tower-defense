@@ -277,9 +277,12 @@ export class Game {
     if (this.heroCount() >= MAX_HEROES) { audio.play('error'); this.ui.toast(`最多同时召唤 ${MAX_HEROES} 名英雄`); return; }
     if (this.gold < def.cost) { audio.play('error'); this.ui.toast('金币不足！'); return; }
     this.gold -= def.cost;
-    const b = this.world.basePos;
-    const ang = this.heroCount() * 2.1;
-    const p = new THREE.Vector3(b.x + Math.cos(ang) * 2.2, 0, b.z + Math.sin(ang) * 2.2);
+    const path = this.world.paths[0];
+    const n = this.heroCount();
+    const p = path.at(path.length - 5 - n * 1.5);
+    const dir = path.dirAt(path.length - 5 - n * 1.5);
+    const side = n % 2 ? 1.6 : -1.6;
+    p.x += -dir.z * side; p.z += dir.x * side; p.y = 0;
     const u = new Unit(this, 'hero', id, p);
     this.clampUnit(u);
     this.units.push(u);
@@ -516,7 +519,7 @@ export class Game {
   }
 
   onWheel(e) {
-    this.camZoom = Math.max(0.55, Math.min(1.6, this.camZoom * (e.deltaY > 0 ? 1.1 : 0.9)));
+    this.camZoom = Math.max(0.7, Math.min(1.5, this.camZoom * (e.deltaY > 0 ? 1.1 : 0.9)));
   }
 
   onKeyDown(e) {

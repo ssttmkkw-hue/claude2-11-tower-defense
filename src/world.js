@@ -9,12 +9,12 @@ export const THEMES = {
     hill: 0x4a8a3a, hillTop: 0x7ab85a, liquid: 'water', sun: 0xfff2d8, sunI: 2.6, hemi: [0xbfe0ff, 0x4a6a3a], amb: 'firefly', crystal: 0x6af0ff,
   },
   lava: {
-    sky: [0x2a0a10, 0x8a3a1a], fog: 0x4a1a14, ground: 0x4a3a3a, ground2: 0x3e3234, path: 0x6a4a3a, pathEdge: 0x3a2a22,
-    hill: 0x2a2024, hillTop: 0x4a3434, liquid: 'lava', sun: 0xffb080, sunI: 2.0, hemi: [0xff9a6a, 0x2a1010], amb: 'ember', crystal: 0xff5a2a,
+    sky: [0x2a0a10, 0x8a3a1a], fog: 0x4a1a14, ground: 0x5a4646, ground2: 0x4e3e40, path: 0x7a5a44, pathEdge: 0x3a2a22,
+    hill: 0x2a2024, hillTop: 0x4a3434, liquid: 'lava', sun: 0xffb080, sunI: 2.4, hemi: [0xff9a6a, 0x2a1010], amb: 'ember', crystal: 0xff5a2a,
   },
   snow: {
-    sky: [0x8ab0d8, 0xe8f0ff], fog: 0xd0e0f0, ground: 0xe8f0f8, ground2: 0xdce6f2, path: 0x9ab0c8, pathEdge: 0x7a90a8,
-    hill: 0xc8d8e8, hillTop: 0xffffff, liquid: 'ice', sun: 0xf0f4ff, sunI: 2.3, hemi: [0xd8e8ff, 0x6a7a9a], amb: 'snow', crystal: 0x9ae0ff,
+    sky: [0x8ab0d8, 0xe8f0ff], fog: 0xd0e0f0, ground: 0xc4d2e2, ground2: 0xb6c6d8, path: 0x8aa0ba, pathEdge: 0x6a8098,
+    hill: 0xa8b8cc, hillTop: 0xdce8f4, liquid: 'ice', sun: 0xf0f4ff, sunI: 1.9, hemi: [0xd8e8ff, 0x6a7a9a], amb: 'snow', crystal: 0x9ae0ff,
   },
 };
 

@@ -261,7 +261,7 @@ export function makeEnemy(def) {
     default:
       body.add(mesh(G.box(0.8, 0.8, 0.8), bodyMat, 0, 0.4, 0));
   }
-  root.scale.setScalar(s);
+  root.scale.setScalar(s * 1.2);
   root.userData = { body, flash, parts };
   return root;
 }
@@ -530,7 +530,7 @@ export function makeHero(id) {
     }
   }
   const root = new THREE.Group();
-  h.g.scale.setScalar(1.15);
+  h.g.scale.setScalar(1.4);
   root.add(h.g);
   root.userData = { body: h.g, parts: h.parts };
   return root;
