@@ -12,14 +12,17 @@ import { Game } from './game.js';
 import { audio } from './audio.js';
 import { cardHTML } from './ui.js';
 import { makeHero } from './models.js';
+import { IS_TOUCH, IS_MOBILE, QUALITY, applyLayoutClasses, haptic } from './device.js';
 
 const SAVE_KEY = 'arcane-bastion-save-v1';
 
 class App {
   constructor() {
     this.container = document.getElementById('app');
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer = new THREE.WebGLRenderer({ antialias: QUALITY.antialias, powerPreference: 'high-performance' });
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio);
+    this.renderer.setPixelRatio(this.pixelRatio);
+    this.perf = { acc: 0, frames: 0, slow: 0 };
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -72,23 +75,67 @@ class App {
   markCleared(id) { this.save.cleared[id] = true; this.persist(); }
 
   resize() {
+    const L = applyLayoutClasses();
+    this.layout = L;
     const w = window.innerWidth, h = window.innerHeight;
     this.width = w; this.height = h;
+    this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(w, h);
+    this.composer.setPixelRatio(this.pixelRatio);
     this.composer.setSize(w, h);
-    this.bloom.resolution.set(w / 2, h / 2);
+    this.bloom.resolution.set(w / QUALITY.bloomDiv, h / QUALITY.bloomDiv);
     this.camera.aspect = w / h;
+    // 竖屏时略增大视野，便于看清更多战场
+    this.camera.fov = L.portrait ? 55 : 45;
     this.camera.updateProjectionMatrix();
     const fx = this.game ? this.game.fx : this.title && this.title.fx;
     if (fx) fx.setScale(h, this.camera.fov);
+    if (this.game) this.game.onResize();
+  }
+
+  // 自适应分辨率：持续掉帧时降低像素比
+  adaptPerf(dt) {
+    const P = this.perf;
+    P.acc += dt; P.frames++;
+    if (P.acc < 2) return;
+    const fps = P.frames / P.acc;
+    P.acc = 0; P.frames = 0;
+    if (document.hidden) return;
+    if (fps < 38 && this.pixelRatio > QUALITY.minPixelRatio) {
+      if (++P.slow >= 2) {
+        P.slow = 0;
+        this.pixelRatio = Math.max(QUALITY.minPixelRatio, this.pixelRatio - 0.25);
+        this.resize();
+      }
+    } else P.slow = 0;
   }
 
   bindInput() {
     const c = this.renderer.domElement;
     c.addEventListener('contextmenu', (e) => e.preventDefault());
-    c.addEventListener('pointermove', (e) => this.game && this.game.onPointerMove(e));
-    c.addEventListener('pointerdown', (e) => { audio.init(); this.game && this.game.onPointerDown(e); });
+    c.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && this.game) this.game.onPointerMove(e); });
+    c.addEventListener('pointerdown', (e) => {
+      audio.init();
+      if (!this.game) return;
+      if (e.pointerType === 'mouse') this.game.onPointerDown(e);
+      else { e.preventDefault(); this.game.touchDown(e); }
+    });
+    window.addEventListener('pointermove', (e) => { if (e.pointerType !== 'mouse' && this.game) this.game.touchMove(e); });
+    const up = (e) => { if (e.pointerType !== 'mouse' && this.game) this.game.touchUp(e, e.type === 'pointercancel'); };
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
     c.addEventListener('wheel', (e) => { e.preventDefault(); this.game && this.game.onWheel(e); }, { passive: false });
+    // 禁止页面缩放 / 滚动 / 长按菜单（iOS Safari 等）
+    const stop = (e) => e.preventDefault();
+    document.addEventListener('gesturestart', stop, { passive: false });
+    document.addEventListener('gesturechange', stop, { passive: false });
+    document.addEventListener('dblclick', stop, { passive: false });
+    document.addEventListener('touchmove', (e) => {
+      if (e.touches.length > 1 || !e.target.closest || !e.target.closest('.scroll-y')) e.preventDefault();
+    }, { passive: false });
+    if (IS_TOUCH) document.addEventListener('contextmenu', stop);
+    for (const ev of ['touchend', 'click']) document.addEventListener(ev, () => audio.init(), { once: true });
+    document.addEventListener('visibilitychange', () => { if (document.hidden && this.game && !this.game.paused && this.game.state !== 'over' && this.game.state !== 'reward') this.game.ui.togglePause(); });
     window.addEventListener('keydown', (e) => {
       audio.init();
       if (this.game) this.game.onKeyDown(e);
@@ -104,7 +151,9 @@ class App {
 
   frame() {
     this.timer.update();
-    const dt = Math.min(0.1, this.timer.getDelta());
+    const rawDt = this.timer.getDelta();
+    const dt = Math.min(0.1, rawDt);
+    this.adaptPerf(Math.min(0.5, rawDt));
     if (this.game) this.game.update(dt);
     else if (this.title) this.updateTitle(dt);
     const scene = this.game ? this.game.scene : this.title ? this.title.scene : null;
@@ -201,7 +250,7 @@ class App {
     d.className = 'screen panel-screen';
     const themeIcon = { grass: '🌿', lava: '🌋', snow: '❄️' };
     d.innerHTML = `
-      <div class="panel-box wide">
+      <div class="panel-box wide scroll-y">
         <h2>选择战场</h2>
         <div class="map-list">
           ${MAPS.map((m, i) => `
@@ -227,7 +276,7 @@ class App {
     const d = document.createElement('div');
     d.className = 'screen panel-screen';
     d.innerHTML = `
-      <div class="panel-box help">
+      <div class="panel-box help scroll-y">
         <h2>游戏说明</h2>
         <div class="help-cols">
           <div>
@@ -292,13 +341,13 @@ class App {
               ${SCHOOL_ORDER.map((k) => `<button class="btn small" data-f="s:${k}" title="${SCHOOLS[k].name}">${SCHOOLS[k].icon}</button>`).join('')}
             </div>
           </div>
-          <div class="collection" id="db-col"></div>
+          <div class="collection scroll-y" id="db-col"></div>
         </div>
         <div class="db-right">
           <h2>我的卡组 <span id="db-count"></span></h2>
           <div class="curve" id="db-curve"></div>
           <div class="db-syn" id="db-syn"></div>
-          <div class="deck-list" id="db-list"></div>
+          <div class="deck-list scroll-y" id="db-list"></div>
           <div class="db-btns">
             <button class="btn small" id="db-default">推荐卡组</button>
             <button class="btn small" id="db-clear">清空</button>

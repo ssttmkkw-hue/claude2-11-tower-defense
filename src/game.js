@@ -8,6 +8,7 @@ import { castCard, castSkill, skillRange, skillRadius } from './spells.js';
 import { audio } from './audio.js';
 import { makeTower } from './models.js';
 import { GameUI } from './ui.js';
+import { IS_TOUCH, IS_MOBILE, QUALITY, haptic } from './device.js';
 
 const KEYS = ['Q', 'E', 'R'];
 
@@ -71,6 +72,14 @@ export class Game {
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.camTarget = new THREE.Vector3(0, 0, 1);
     this.camZoom = 1;
+    this.camYaw = 0;
+    this.zoomMin = 0.7; this.zoomMax = 1.5;
+    this.touches = new Map();
+    this.dragNoneCard = -1;
+    this.gest = null;
+    this.camSnapUntil = 0;
+    this.layoutKey = '';
+    this.onResize();
     this.ambT = 0;
     this.buildHelpers();
     this.ui = new GameUI(this);
@@ -383,7 +392,7 @@ export class Game {
   summonOrSelectHero(id) {
     const h = this.heroOnField(id);
     if (h) {
-      if (this.selectedHero === h) this.camTarget.set(h.pos.x, 0, h.pos.z);
+      if (this.selectedHero === h) this.focusCamOn(h.pos);
       this.selectedHero = h;
       audio.play('click');
       this.ui.renderHeroes();
@@ -660,6 +669,143 @@ export class Game {
 
   onPointerMove(e) { this.updateMouse(e.clientX, e.clientY); }
 
+  // ---------- 布局 / 镜头适配 ----------
+  onResize() {
+    const L = this.app.layout || { compact: false, portrait: false, w: innerWidth, h: innerHeight };
+    const key = `${L.compact}|${L.portrait}`;
+    if (key === this.layoutKey) return;
+    this.layoutKey = key;
+    // 竖屏：镜头旋转 90°，让地图长边沿屏幕竖向排布（敌人自上而下进攻）
+    this.camYaw = L.portrait ? Math.PI / 2 : 0;
+    if (!L.compact) { this.zoomMin = 0.7; this.zoomMax = 1.5; this.camZoom = 1; return; }
+    const cam = this.camera;
+    const span = (L.portrait ? this.map.h : this.map.w) * 2 * 0.98;
+    const hfov = 2 * Math.atan(Math.tan((cam.fov * Math.PI) / 360) * cam.aspect);
+    const fit = span / (2 * 37.2 * Math.tan(hfov / 2));
+    this.camZoom = Math.max(0.8, Math.min(2.2, fit));
+    this.zoomMin = 0.6;
+    this.zoomMax = Math.max(1.6, this.camZoom * 1.35);
+    this.camTarget.set(L.portrait ? 6 : 0, 0, L.portrait ? 0 : 3);
+  }
+
+  // 屏幕方向 → 世界方向（考虑镜头旋转）
+  screenToWorldDir(sx, sy) {
+    const c = Math.cos(this.camYaw), s = Math.sin(this.camYaw);
+    // 右 = (c, -s)，上(前) = (-s, -c)
+    return { x: sx * c - sy * s, z: -sx * s - sy * c };
+  }
+
+  groundAt(x, y, out) {
+    const r = this.app.renderer.domElement.getBoundingClientRect();
+    const m = new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+    this.raycaster.setFromCamera(m, this.camera);
+    return this.raycaster.ray.intersectPlane(this.groundPlane, out);
+  }
+
+  panBy(x0, y0, x1, y1) {
+    const a = this.groundAt(x0, y0, new THREE.Vector3());
+    const b = this.groundAt(x1, y1, new THREE.Vector3());
+    if (!a || !b) return;
+    this.camTarget.x += a.x - b.x;
+    this.camTarget.z += a.z - b.z;
+    this.clampCam();
+    this.camSnapUntil = performance.now() + 120;
+  }
+
+  clampCam() {
+    const ex = this.app.layout && this.app.layout.compact ? 6 : 0;
+    this.camTarget.x = Math.max(-18 - ex, Math.min(18 + ex, this.camTarget.x));
+    this.camTarget.z = Math.max(-12 - ex, Math.min(14 + ex, this.camTarget.z));
+  }
+
+  isTargeting() { return !!this.buildType || this.pendingCard >= 0 || this.aimSkill >= 0; }
+
+  // ---------- 触控 ----------
+  // 单指点击 = 左键；单指拖动 = 平移镜头（瞄准模式下为移动瞄准点，松手施放）
+  // 双指 = 捏合缩放 + 平移
+  touchDown(e) {
+    if (this.state === 'over' || this.paused) return;
+    const T = this.touches;
+    T.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (T.size === 1) {
+      const aim = this.isTargeting() && this.state !== 'reward';
+      this.gest = { mode: aim ? 'aim' : 'tap', id: e.pointerId, sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY };
+      if (aim) this.updateMouse(e.clientX, e.clientY);
+    } else if (T.size === 2) {
+      const [a, b] = [...T.values()];
+      this.gest = { mode: 'pinch', d0: Math.max(20, Math.hypot(a.x - b.x, a.y - b.y)), z0: this.camZoom, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    }
+  }
+
+  touchMove(e) {
+    const T = this.touches;
+    const p = T.get(e.pointerId);
+    if (!p) return;
+    p.x = e.clientX; p.y = e.clientY;
+    const g = this.gest;
+    if (!g) return;
+    if (g.mode === 'pinch') {
+      if (T.size < 2) return;
+      const [a, b] = [...T.values()];
+      const d = Math.max(20, Math.hypot(a.x - b.x, a.y - b.y));
+      this.camZoom = Math.max(this.zoomMin, Math.min(this.zoomMax, g.z0 * g.d0 / d));
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      this.panBy(g.mx, g.my, mx, my);
+      g.mx = mx; g.my = my;
+      return;
+    }
+    if (e.pointerId !== g.id) return;
+    if (g.mode === 'tap' && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) > 12) g.mode = 'pan';
+    if (g.mode === 'pan') this.panBy(g.lx, g.ly, e.clientX, e.clientY);
+    else if (g.mode === 'aim') this.updateMouse(e.clientX, e.clientY);
+    g.lx = e.clientX; g.ly = e.clientY;
+  }
+
+  touchUp(e, cancelled) {
+    const T = this.touches;
+    if (!T.has(e.pointerId)) return;
+    T.delete(e.pointerId);
+    const g = this.gest;
+    if (!g) return;
+    if (g.mode === 'pinch') {
+      if (T.size === 0) this.gest = null;
+      else {
+        const [id, p] = [...T.entries()][0];
+        this.gest = { mode: 'pan', id, sx: p.x, sy: p.y, lx: p.x, ly: p.y };
+      }
+      return;
+    }
+    if (e.pointerId !== g.id) return;
+    this.gest = null;
+    if (cancelled || this.state === 'over' || this.paused) return;
+    if (g.mode === 'tap' || g.mode === 'aim') this.onPointerDown({ button: 0, clientX: e.clientX, clientY: e.clientY, touch: true });
+  }
+
+  // 从手牌 / 技能按钮拖出时的瞄准
+  dragAimTo(x, y) { this.updateMouse(x, y); }
+  dragAimRelease(x, y) {
+    const over = document.elementFromPoint(x, y) === this.app.renderer.domElement;
+    if (this.dragNoneCard >= 0) {
+      const i = this.dragNoneCard;
+      this.dragNoneCard = -1;
+      if (over) this.selectCard(i);
+      return;
+    }
+    if (over && this.isTargeting()) this.onPointerDown({ button: 0, clientX: x, clientY: y, touch: true });
+    else this.cancelModes();
+  }
+
+  toggleHold() {
+    const h = this.selectedHero;
+    if (!h || !h.alive) return;
+    h.holdPos = !h.holdPos;
+    audio.play('click');
+    this.ui.toast(h.holdPos ? '英雄坚守原地（不追击）' : '英雄恢复自由追击');
+    this.ui.renderHeroes();
+  }
+
+  focusCamOn(p) { this.camTarget.set(p.x, 0, p.z); this.clampCam(); }
+
   pickEnemy() {
     let best = null, bd = 1.6 * 1.6;
     for (const e of this.enemies) {
@@ -749,7 +895,7 @@ export class Game {
   }
 
   onWheel(e) {
-    this.camZoom = Math.max(0.7, Math.min(1.5, this.camZoom * (e.deltaY > 0 ? 1.1 : 0.9)));
+    this.camZoom = Math.max(this.zoomMin, Math.min(this.zoomMax, this.camZoom * (e.deltaY > 0 ? 1.1 : 0.9)));
   }
 
   onKeyDown(e) {
@@ -775,7 +921,7 @@ export class Game {
       this.beginAim(si);
       return;
     }
-    if (k === 'H') { this.selectedHero && this.selectedHero.alive && (this.selectedHero.holdPos = !this.selectedHero.holdPos, this.ui.toast(this.selectedHero.holdPos ? '英雄坚守原地（不追击）' : '英雄恢复自由追击')); return; }
+    if (k === 'H') { this.toggleHold(); return; }
     if (k === 'Tab') {
       e.preventDefault();
       const heroes = this.units.filter((u) => u.kind === 'hero');
@@ -786,7 +932,7 @@ export class Game {
       }
       return;
     }
-    if (k === 'F') { if (this.selectedHero) this.camTarget.set(this.selectedHero.pos.x, 0, this.selectedHero.pos.z); return; }
+    if (k === 'F') { if (this.selectedHero) this.focusCamOn(this.selectedHero.pos); return; }
     if (k === 'U' && this.selectedTower) this.upgradeTower(this.selectedTower);
     if (k === 'X' && this.selectedTower) this.sellTower(this.selectedTower);
   }
@@ -840,9 +986,9 @@ export class Game {
     const h = this.selectedHero;
     for (const u of this.units) u.manual = null;
     if (h && h.alive && this.state !== 'reward') {
-      const mx = (this.keys.D ? 1 : 0) - (this.keys.A ? 1 : 0);
-      const mz = (this.keys.S ? 1 : 0) - (this.keys.W ? 1 : 0);
-      if (mx || mz) h.manual = { x: mx, z: mz };
+      const sx = (this.keys.D ? 1 : 0) - (this.keys.A ? 1 : 0);
+      const sy = (this.keys.W ? 1 : 0) - (this.keys.S ? 1 : 0);
+      if (sx || sy) { const d = this.screenToWorldDir(sx, sy); h.manual = { x: Math.round(d.x * 1000) / 1000, z: Math.round(d.z * 1000) / 1000 }; }
     }
     for (const e of this.enemies) if (e.alive) e.update(dt);
     this.enemies = this.enemies.filter((e) => e.alive);
@@ -876,7 +1022,7 @@ export class Game {
     this.ambT += dt;
     const kind = this.world.theme.amb;
     const fx = this.fx;
-    const n = Math.random() < dt * 20 ? 1 : 0;
+    const n = Math.random() < dt * 20 * QUALITY.ambient ? 1 : 0;
     for (let i = 0; i < n; i++) {
       const x = rand(-28, 28), z = rand(-20, 20);
       if (kind === 'firefly') fx.glow.emit({ x, y: rand(0.3, 2.5), z, vx: rand(-0.4, 0.4), vy: rand(-0.1, 0.3), vz: rand(-0.4, 0.4), life: 4, size: 0.35, sizeEnd: 0.2, color: fx.col(0xd8ff7a, 2), drag: 0 });
@@ -889,17 +1035,22 @@ export class Game {
 
   updateCamera(dt) {
     const pan = 18 * dt * this.camZoom;
-    if (this.keys.ArrowLeft) this.camTarget.x -= pan;
-    if (this.keys.ArrowRight) this.camTarget.x += pan;
-    if (this.keys.ArrowUp) this.camTarget.z -= pan;
-    if (this.keys.ArrowDown) this.camTarget.z += pan;
-    this.camTarget.x = Math.max(-18, Math.min(18, this.camTarget.x));
-    this.camTarget.z = Math.max(-12, Math.min(14, this.camTarget.z));
+    const kx = (this.keys.ArrowRight ? 1 : 0) - (this.keys.ArrowLeft ? 1 : 0);
+    const ky = (this.keys.ArrowUp ? 1 : 0) - (this.keys.ArrowDown ? 1 : 0);
+    if (kx || ky) {
+      const d = this.screenToWorldDir(kx, ky);
+      this.camTarget.x += d.x * pan;
+      this.camTarget.z += d.z * pan;
+    }
+    this.clampCam();
     const z = this.camZoom;
-    const desired = new THREE.Vector3(this.camTarget.x, 30 * z, this.camTarget.z + 22 * z);
-    this.camera.position.lerp(desired, Math.min(1, dt * 8));
+    const ox = Math.sin(this.camYaw) * 22 * z, oz = Math.cos(this.camYaw) * 22 * z;
+    if (!this._camDesired) this._camDesired = new THREE.Vector3();
+    const desired = this._camDesired.set(this.camTarget.x + ox, 30 * z, this.camTarget.z + oz);
+    const snap = performance.now() < this.camSnapUntil;
+    this.camera.position.lerp(desired, snap ? 1 : Math.min(1, dt * 8));
     this.camera.position.add(this.fx.shakeOffset);
-    this.camera.lookAt(this.camera.position.x, 0, this.camera.position.z - 22 * z + this.fx.shakeOffset.z * 0);
+    this.camera.lookAt(this.camera.position.x - ox, 0, this.camera.position.z - oz);
   }
 
   updateHover() {

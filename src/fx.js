@@ -1,5 +1,6 @@
 // ============ 视觉特效系统 ============
 import * as THREE from 'three';
+import { QUALITY } from './device.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -238,15 +239,15 @@ export class FX {
   constructor(scene, camera) {
     this.scene = scene;
     this.camera = camera;
-    this.glow = new ParticleSystem(scene, 9000, true);
-    this.smoke = new ParticleSystem(scene, 2500, false);
+    this.glow = new ParticleSystem(scene, QUALITY.glowMax, true);
+    this.smoke = new ParticleSystem(scene, QUALITY.smokeMax, false);
     this.items = []; // {update(dt) -> bool alive, dispose()}
     this.shakeAmt = 0;
     this.shakeOffset = new THREE.Vector3();
     this.time = 0;
     // 光源池
     this.lights = [];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < QUALITY.lights; i++) {
       const l = new THREE.PointLight(0xffffff, 0, 10, 2);
       l.userData.life = 0;
       scene.add(l);
@@ -271,7 +272,8 @@ export class FX {
 
   // 通用粒子爆发
   burst(p, o) {
-    const n = o.count || 20;
+    const n0 = o.count || 20;
+    const n = QUALITY.particles >= 1 ? n0 : Math.max(1, Math.round(n0 * QUALITY.particles + Math.random() - 0.5));
     const sys = o.smoke ? this.smoke : this.glow;
     const c0 = o.color instanceof THREE.Color ? o.color : this.col(o.color, o.intensity || 1);
     const c1 = o.color2 !== undefined ? (o.color2 instanceof THREE.Color ? o.color2 : this.col(o.color2, o.intensity2 || 1)) : c0;
@@ -311,6 +313,7 @@ export class FX {
 
   // 单粒子（用于拖尾）
   trail(p, color, size = 0.8, life = 0.4, jitter = 0.05, intensity = 1.5) {
+    if (QUALITY.particles < 1 && Math.random() > QUALITY.particles + 0.2) return;
     this.tmpC.set(color).multiplyScalar(intensity);
     this.glow.emit({
       x: p.x + rand(-jitter, jitter), y: p.y + rand(-jitter, jitter), z: p.z + rand(-jitter, jitter),

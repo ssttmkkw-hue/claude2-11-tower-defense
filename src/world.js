@@ -1,6 +1,7 @@
 // ============ 地图 / 场景构建 ============
 import * as THREE from 'three';
 import { TILE } from './data.js';
+import { QUALITY } from './device.js';
 import { makeTree, makeRock, makeCrystal, makeFlower, makeBase, makePortal, mat } from './models.js';
 
 export const THEMES = {
@@ -167,7 +168,7 @@ export class World {
     const sun = new THREE.DirectionalLight(theme.sun, theme.sunI);
     sun.position.set(-18, 32, 14);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
     const sc = sun.shadow.camera;
     sc.left = -30; sc.right = 30; sc.top = 24; sc.bottom = -24; sc.near = 1; sc.far = 90;
     sun.shadow.bias = -0.0005;

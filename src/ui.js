@@ -2,6 +2,8 @@
 import * as THREE from 'three';
 import { TOWERS, TOWER_ORDER, HEROES, HERO_ORDER, CARDS, RARITY, MAX_HEROES, SCHOOLS, SCHOOL_ORDER, RELICS, ENEMIES, SKILL_MAX, skillReq, rankMul, rankCd, wavePreview, schoolCounts } from './data.js';
 import { audio } from './audio.js';
+import { skillRange } from './spells.js';
+import { IS_TOUCH, QUALITY, haptic } from './device.js';
 
 export function cardHTML(id, extra = '') {
   const c = CARDS[id];
@@ -31,7 +33,79 @@ export class GameUI {
     this.hoverSkill = -1;
     this.refreshT = 0;
     this.floats = [];
+    this.lpFired = false;
     this.build();
+    // 长按 / 拖拽之后吞掉随之而来的 click
+    this.root.addEventListener('click', (e) => { if (this.lpFired) { this.lpFired = false; e.stopPropagation(); e.preventDefault(); } }, true);
+    this._docDown = (e) => { this.lpFired = false; if (e.pointerType !== 'mouse') { if (!e.target.closest || !e.target.closest('.tooltip')) this.tooltip(null); } };
+    document.addEventListener('pointerdown', this._docDown, true);
+  }
+
+  // 悬停提示：鼠标悬停显示，触屏长按显示
+  bindTip(elm, htmlFn, opts = {}) {
+    elm.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') { this.tooltip(elm, htmlFn()); if (opts.enter) opts.enter(); } });
+    elm.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') { this.tooltip(null); if (opts.leave) opts.leave(); } });
+    if (!IS_TOUCH) return;
+    let timer = null, sx = 0, sy = 0;
+    elm.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      this.lpFired = false;
+      sx = e.clientX; sy = e.clientY;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        this.tooltip(elm, htmlFn());
+        this.lpFired = true;
+        clearTimeout(this.tipHideT);
+        this.tipHideT = setTimeout(() => this.tooltip(null), 4000);
+        haptic(8);
+      }, 430);
+    });
+    elm.addEventListener('pointermove', (e) => { if (Math.hypot(e.clientX - sx, e.clientY - sy) > 10) clearTimeout(timer); });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) elm.addEventListener(ev, () => clearTimeout(timer));
+  }
+
+  // 从 UI 元素拖出到战场：onStart() 返回 false 取消；松手时交由 game 处理
+  bindDragOut(elm, { onStart, icon, color, threshold = 22 }) {
+    elm.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const id = e.pointerId, sx = e.clientX, sy = e.clientY;
+      let drag = null;
+      const g = this.game;
+      const move = (ev) => {
+        if (ev.pointerId !== id) return;
+        if (!drag) {
+          if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < threshold) return;
+          if (onStart() === false) { cleanup(); return; }
+          drag = el('div', 'drag-ghost', `<span>${icon}</span>`);
+          drag.style.setProperty('--cc', color);
+          this.root.appendChild(drag);
+          this.lpFired = true;
+          this.tooltip(null);
+          haptic(10);
+        }
+        drag.style.transform = `translate(${ev.clientX}px, ${ev.clientY}px)`;
+        const over = document.elementFromPoint(ev.clientX, ev.clientY);
+        drag.classList.toggle('over-ui', over !== g.app.renderer.domElement);
+        g.dragAimTo(ev.clientX, ev.clientY);
+      };
+      const up = (ev) => {
+        if (ev.pointerId !== id) return;
+        cleanup();
+        if (drag) {
+          drag.remove();
+          if (ev.type === 'pointercancel') g.cancelModes();
+          else g.dragAimRelease(ev.clientX, ev.clientY);
+        }
+      };
+      const cleanup = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
   }
 
   build() {
@@ -49,6 +123,7 @@ export class GameUI {
         <button class="btn small" id="bt-sound" title="声音">🔊</button>
         <button class="btn small" id="bt-pause" title="暂停 (Esc)">⏸</button>
       </div>
+      <div class="mode-bar hidden" id="mode-bar"></div>
       <div class="boss-bar hidden" id="boss-bar"><div class="boss-name" id="boss-name"></div><div class="boss-track"><div class="boss-fill" id="boss-fill"></div></div></div>
       <div class="build-panel" id="build-panel"><div class="panel-title">防御塔</div></div>
       <div class="tower-panel hidden" id="tower-panel"></div>
@@ -67,12 +142,12 @@ export class GameUI {
         <div class="pile-info"><span title="抽牌堆">🂠 <b id="pile-draw"></b></span><span title="弃牌堆">🗑 <b id="pile-disc"></b></span></div>
       </div>
       <div class="wave-preview" id="wave-preview"></div>
-      <button class="btn primary wave-btn" id="bt-wave">⚔ 开始第 1 波 <small>(空格)</small></button>
-      <div class="help-tip">左键：选择/移动 · 点敌人：集火 · WASD：操控 · 按住 Q/E/R 瞄准松开施放 · Shift+Q/E/R：学习技能 · H：坚守 · 1-9：出牌</div>
+      <button class="btn primary wave-btn" id="bt-wave">⚔ 开始第 1 波 <small class="kbd">(空格)</small></button>
+      <div class="help-tip ${IS_TOUCH ? 'hidden' : ''}">左键：选择/移动 · 点敌人：集火 · WASD：操控 · 按住 Q/E/R 瞄准松开施放 · Shift+Q/E/R：学习技能 · H：坚守 · 1-9：出牌</div>
       <div class="banner" id="banner"></div>
       <div class="toasts" id="toasts"></div>
       <div class="floats" id="floats"></div>
-      <div class="overlay hidden" id="overlay"></div>
+      <div class="overlay scroll-y hidden" id="overlay"></div>
     `;
     const $ = (id) => this.root.querySelector('#' + id);
     this.$ = $;
@@ -88,8 +163,7 @@ export class GameUI {
         if (g.buildType === type) g.cancelModes();
         else g.setBuildType(type);
       });
-      b.addEventListener('mouseenter', () => this.tooltip(b, `<b>${d.icon} ${d.name}</b><br>${d.desc}<br>${statLine(d, 0)}`));
-      b.addEventListener('mouseleave', () => this.tooltip(null));
+      this.bindTip(b, () => `<b>${d.icon} ${d.name}</b> · 💰${g.towerCost(type, 0)}<br>${d.desc}<br>${statLine(d, 0)}`);
       bp.appendChild(b);
       this.buildBtns[type] = b;
     }
@@ -101,8 +175,7 @@ export class GameUI {
       const b = el('button', 'hero-btn', `<div class="hp-face" style="--hc:#${d.color.toString(16).padStart(6, '0')}">${d.icon}</div>
         <div class="hero-info"><div class="hn">${d.name}</div><div class="hbar"><i></i></div><div class="hs"></div></div>`);
       b.addEventListener('click', () => g.summonOrSelectHero(id));
-      b.addEventListener('mouseenter', () => this.tooltip(b, `<b>${d.icon} ${d.title} · ${d.name}</b><br>${d.desc}<br>生命 ${d.hp} · 攻击 ${d.atk} · 召唤 💰${d.cost}<hr><b>被动 ${d.passive.icon} ${d.passive.name}</b><br><small>${d.passive.desc}</small><br>${d.skills.map((s) => `<b>[${s.key}] ${s.icon} ${s.name}</b> (${s.cd}秒)<br><small>${s.desc}</small>`).join('<br>')}<hr><small>升级获得技能点：Shift+Q/E/R 学习。终极技能 3 级解锁。</small>`));
-      b.addEventListener('mouseleave', () => this.tooltip(null));
+      this.bindTip(b, () => `<b>${d.icon} ${d.title} · ${d.name}</b><br>${d.desc}<br>生命 ${d.hp} · 攻击 ${d.atk} · 召唤 💰${d.cost}<hr><b>被动 ${d.passive.icon} ${d.passive.name}</b><br><small>${d.passive.desc}</small><br>${d.skills.map((s) => `<b>[${s.key}] ${s.icon} ${s.name}</b> (${s.cd}秒)<br><small>${s.desc}</small>`).join('<br>')}<hr><small>${IS_TOUCH ? '升级获得技能点：点击技能上的「+」学习' : '升级获得技能点：Shift+Q/E/R 学习'}。终极技能 3 级解锁。</small>`);
       hl.appendChild(b);
       this.heroBtns[id] = b;
     }
@@ -160,10 +233,24 @@ export class GameUI {
       if (g.mana < CARDS[id].cost) card.classList.add('unaffordable');
       if (g.pendingCard === i) wrap.classList.add('pending');
       if (animateNew && i >= prevCount) wrap.classList.add('drawn');
+      const c = CARDS[id];
       wrap.addEventListener('click', (e) => {
         e.stopPropagation();
         if (g.pendingCard === i) { g.cancelModes(); return; }
+        haptic(8);
         g.selectCard(i);
+      });
+      this.bindTip(wrap, () => `<b>${c.icon} ${c.name}</b> · 法力 ${c.cost} · <span style="color:${RARITY[c.rarity].color}">${RARITY[c.rarity].name}</span>${c.school ? ` · ${SCHOOLS[c.school].icon}${SCHOOLS[c.school].name}` : ''}<br>${c.desc}<br><small>${c.target === 'none' ? '立即生效' : c.target === 'tower' ? '选择一座防御塔' : '点击或拖到地面释放'}</small>`);
+      // 拖出手牌直接施放
+      this.bindDragOut(wrap, {
+        icon: c.icon, color: c.color,
+        onStart: () => {
+          if (g.state === 'over' || g.state === 'reward' || g.paused) return false;
+          if (g.mana < c.cost) { audio.play('error'); this.toast('法力不足！'); return false; }
+          if (c.target === 'none') { g.cancelModes(); g.dragNoneCard = i; return true; }
+          if (g.pendingCard !== i) g.selectCard(i);
+          return g.pendingCard === i;
+        },
       });
       hand.appendChild(wrap);
     });
@@ -195,29 +282,47 @@ export class GameUI {
     if (!h) { sb.innerHTML = '<div class="skill-hint">点击头像召唤英雄</div>'; return; }
     const d = HEROES[h.id];
     const pv = el('div', 'passive-ico', d.passive.icon);
-    pv.addEventListener('mouseenter', () => this.tooltip(pv, `<b>被动：${d.passive.name}</b><br>${d.passive.desc}`));
-    pv.addEventListener('mouseleave', () => this.tooltip(null));
+    this.bindTip(pv, () => `<b>被动：${d.passive.name}</b><br>${d.passive.desc}`);
+    if (IS_TOUCH) pv.addEventListener('click', () => { this.tooltip(pv, `<b>被动：${d.passive.name}</b><br>${d.passive.desc}`); clearTimeout(this.tipHideT); this.tipHideT = setTimeout(() => this.tooltip(null), 3000); });
     sb.appendChild(pv);
     d.skills.forEach((s, i) => {
       const rank = h.ranks[i];
       const canLearn = h.skillPts > 0 && rank < SKILL_MAX[i] && h.level >= skillReq(i, rank + 1);
       const pips = Array.from({ length: SKILL_MAX[i] }, (_, k) => `<i class="${k < rank ? 'on' : ''}"></i>`).join('');
       const b = el('button', `skill-btn ${rank === 0 ? 'locked' : ''}`, `<span class="si">${s.icon}</span><span class="sk">${s.key}</span><div class="cd"></div><span class="cdt"></span><div class="pips">${pips}</div>${canLearn ? '<div class="learn" title="学习 (Shift+' + s.key + ')">+</div>' : ''}`);
+      const self = skillRange(h.id, i) === 0;
       b.addEventListener('click', (e) => {
         if (e.target.classList.contains('learn')) { g.learnSkill(h, i); return; }
         if (g.aimSkill === i) { g.cancelModes(); return; }
+        // 触屏：自身范围技能点击即施放
+        if (IS_TOUCH && self) { if (g.canCast(h, i)) { haptic(12); g.castHeroSkill(i, h.pos.clone()); } return; }
         this.aimFromButton = true;
         g.beginAim(i);
       });
-      b.addEventListener('mouseenter', () => {
-        this.hoverSkill = i;
+      this.bindTip(b, () => {
         const cd = (s.cd * rankCd(Math.max(1, rank))).toFixed(1);
         const nextReq = rank < SKILL_MAX[i] ? skillReq(i, rank + 1) : 0;
-        this.tooltip(b, `<b>[${s.key}] ${s.name}</b> · ${rank ? `${rank} 级` : '未学习'} · 冷却 ${cd} 秒<br>${s.desc}<br><small>当前威力 ×${rankMul(Math.max(1, rank)).toFixed(1)}；每级伤害/治疗 +30%、冷却 -8%</small><br><small>${rank < SKILL_MAX[i] ? `下一级需要英雄 Lv.${nextReq}（可用技能点 ${h.skillPts}）` : '已满级'}</small><br><small>按住 ${s.key} 瞄准、松开施放；或点击按钮后点击地面</small>`);
-      });
-      b.addEventListener('mouseleave', () => { this.hoverSkill = -1; this.tooltip(null); });
+        return `<b>[${s.key}] ${s.name}</b> · ${rank ? `${rank} 级` : '未学习'} · 冷却 ${cd} 秒<br>${s.desc}<br><small>当前威力 ×${rankMul(Math.max(1, rank)).toFixed(1)}；每级伤害/治疗 +30%、冷却 -8%</small><br><small>${rank < SKILL_MAX[i] ? `下一级需要英雄 Lv.${nextReq}（可用技能点 ${h.skillPts}）` : '已满级'}</small><br><small>${IS_TOUCH ? (self ? '点击立即施放' : '点击后点地面，或直接拖到目标处松手施放') : `按住 ${s.key} 瞄准、松开施放；或点击按钮后点击地面`}</small>`;
+      }, { enter: () => { this.hoverSkill = i; }, leave: () => { this.hoverSkill = -1; } });
+      if (!self) {
+        this.bindDragOut(b, {
+          icon: s.icon, color: '#' + d.color.toString(16).padStart(6, '0'),
+          onStart: () => {
+            if (g.paused || g.state === 'over' || g.state === 'reward') return false;
+            if (!g.canCast(h, i, true)) return false;
+            this.aimFromButton = true;
+            g.beginAim(i);
+            this.aimFromButton = true;
+            return g.aimSkill === i;
+          },
+        });
+      }
       sb.appendChild(b);
     });
+    const hold = el('button', `hold-btn ${h.holdPos ? 'on' : ''}`, `🛡<small>${h.holdPos ? '坚守' : '追击'}</small>`);
+    hold.addEventListener('click', () => g.toggleHold());
+    this.bindTip(hold, () => `<b>${h.holdPos ? '坚守原地' : '自由追击'}</b><br>切换英雄是否离开站位追击敌人${IS_TOUCH ? '' : '（H）'}`);
+    sb.appendChild(hold);
     if (h.skillPts > 0) sb.appendChild(el('div', 'pts-badge', `${h.skillPts}`));
     this.skillEls = [...sb.querySelectorAll('.skill-btn')];
     this.lastPts = h.skillPts;
@@ -231,8 +336,8 @@ export class GameUI {
     for (const id of g.relics) {
       const r = RELICS[id];
       const d = el('div', 'relic', r.icon);
-      d.addEventListener('mouseenter', () => this.tooltip(d, `<b>${r.icon} ${r.name}</b><br>${r.desc}`));
-      d.addEventListener('mouseleave', () => this.tooltip(null));
+      this.bindTip(d, () => `<b>${r.icon} ${r.name}</b><br>${r.desc}`);
+      if (IS_TOUCH) d.addEventListener('click', () => this.tapTip(d, `<b>${r.icon} ${r.name}</b><br>${r.desc}`));
       bar.appendChild(d);
     }
   }
@@ -249,10 +354,17 @@ export class GameUI {
       const tier = g.tiers[k];
       const d = el('div', `syn tier${tier}`, `${S.icon}<b>${counts[k]}</b>`);
       d.style.setProperty('--sc', S.color);
-      d.addEventListener('mouseenter', () => this.tooltip(d, `<b>${S.icon} ${S.name}流派</b>（卡组中 ${counts[k]} 张）<br>${S.tiers.map((t, i) => `<span style="opacity:${i < tier ? 1 : 0.45}">${i < tier ? '✔' : '○'} [${t.n}] ${t.desc}</span>`).join('<br>')}<br><small>连续打出同流派卡牌触发连携，伤害逐层 +15%</small>`));
-      d.addEventListener('mouseleave', () => this.tooltip(null));
+      const html = () => `<b>${S.icon} ${S.name}流派</b>（卡组中 ${counts[k]} 张）<br>${S.tiers.map((t, i) => `<span style="opacity:${i < tier ? 1 : 0.45}">${i < tier ? '✔' : '○'} [${t.n}] ${t.desc}</span>`).join('<br>')}<br><small>连续打出同流派卡牌触发连携，伤害逐层 +15%</small>`;
+      this.bindTip(d, html);
+      if (IS_TOUCH) d.addEventListener('click', () => this.tapTip(d, html()));
       bar.appendChild(d);
     }
+  }
+
+  tapTip(anchor, html) {
+    this.tooltip(anchor, html);
+    clearTimeout(this.tipHideT);
+    this.tipHideT = setTimeout(() => this.tooltip(null), 3500);
   }
 
   comboFx(n, school) {
@@ -295,8 +407,9 @@ export class GameUI {
       <div class="tp-stats">${statLine(d, t.level, t.dmgMul)}${t.kills ? `<br>击杀：${t.kills}` : ''}</div>
       ${next ? `<div class="tp-next">升级后：${statLine(d, t.level + 1, t.dmgMul)}</div>` : '<div class="tp-next">已达最高等级</div>'}
       <div class="tp-btns">
-        ${next ? `<button class="btn primary" id="tp-up">⬆ 升级 💰${next.cost} <small>(U)</small></button>` : ''}
-        <button class="btn danger" id="tp-sell">出售 +${Math.floor(t.spent * 0.7)} <small>(X)</small></button>
+        ${next ? `<button class="btn primary" id="tp-up">⬆ 升级 💰${next.cost} <small class="kbd">(U)</small></button>` : ''}
+        <button class="btn danger" id="tp-sell">出售 +${Math.floor(t.spent * 0.7)} <small class="kbd">(X)</small></button>
+        <button class="btn tp-close" id="tp-close" title="关闭">✖</button>
       </div>`;
     const up = p.querySelector('#tp-up');
     if (up) {
@@ -304,6 +417,7 @@ export class GameUI {
       up.addEventListener('click', () => g.upgradeTower(t));
     }
     p.querySelector('#tp-sell').addEventListener('click', () => g.sellTower(t));
+    p.querySelector('#tp-close').addEventListener('click', () => { audio.play('click'); g.selectedTower = null; this.hideTowerPanel(); });
     this.panelTower = t;
     this.panelGold = g.gold;
   }
@@ -324,7 +438,7 @@ export class GameUI {
     const wb = this.$('bt-wave');
     const show = g.state === 'build';
     wb.classList.toggle('hidden', !show);
-    if (show) wb.innerHTML = `⚔ 开始第 ${g.wave + 1} 波 <small>(空格)</small>`;
+    if (show) { const h = `⚔ 开始第 ${g.wave + 1} 波 <small class="kbd">(空格)</small>`; if (this.lastWaveHtml !== h) { this.lastWaveHtml = h; wb.innerHTML = h; } }
     if (force || this.lastPreviewWave !== g.wave + ':' + g.state) { this.lastPreviewWave = g.wave + ':' + g.state; this.renderWavePreview(); }
     this.updateBuildButtons();
     // 英雄状态
@@ -335,10 +449,11 @@ export class GameUI {
       const hs = b.querySelector('.hs');
       if (h) {
         bar.style.width = `${(h.hp / h.maxHp) * 100}%`;
-        hs.textContent = h.alive ? `Lv.${h.level}${h.skillPts ? ` · ✦${h.skillPts}` : ''}${h.focus ? ' · 🎯' : ''}${h.holdPos ? ' · 🛡坚守' : ''}` : `复活 ${Math.ceil(h.respawn)}s`;
+        hs.textContent = g.app.layout && g.app.layout.compact ? (h.alive ? `Lv${h.level}${h.skillPts ? '✦' : ''}` : `${Math.ceil(h.respawn)}s`) : h.alive ? `Lv.${h.level}${h.skillPts ? ` · ✦${h.skillPts}` : ''}${h.focus ? ' · 🎯' : ''}${h.holdPos ? ' · 🛡坚守' : ''}` : `复活 ${Math.ceil(h.respawn)}s`;
       } else {
         bar.style.width = '0%';
-        hs.textContent = g.heroCount() >= MAX_HEROES ? '队伍已满' : `召唤 💰${HEROES[id].cost}`;
+        const cmp = g.app.layout && g.app.layout.compact;
+        hs.textContent = g.heroCount() >= MAX_HEROES ? (cmp ? '已满' : '队伍已满') : cmp ? `💰${HEROES[id].cost}` : `召唤 💰${HEROES[id].cost}`;
         b.classList.toggle('disabled', g.gold < HEROES[id].cost || g.heroCount() >= MAX_HEROES);
       }
       if (h && h.alive === b.classList.contains('dead')) this.renderHeroes();
@@ -374,6 +489,7 @@ export class GameUI {
       });
     }
     if (g.aimSkill < 0) this.aimFromButton = false;
+    this.updateModeBar();
     // 连携计时
     const cb = this.$('combo-timer');
     if (cb) {
@@ -408,8 +524,33 @@ export class GameUI {
     if (this.refreshT > 0.1) { this.refreshT = 0; this.refresh(); }
   }
 
+  updateModeBar() {
+    const g = this.game;
+    let key = '', html = '';
+    if (g.pendingCard >= 0 && g.hand[g.pendingCard]) {
+      const c = CARDS[g.hand[g.pendingCard]];
+      key = 'c' + g.pendingCard + c.name;
+      html = `<span class="mb-ico" style="--cc:${c.color}">${c.icon}</span><span class="mb-txt"><b>${c.name}</b><small>${c.target === 'tower' ? '点击一座防御塔' : IS_TOUCH ? '点击 / 拖动到目标处松手释放' : '点击地面释放 · 右键取消'}</small></span>`;
+    } else if (g.aimSkill >= 0 && g.selectedHero) {
+      const s = HEROES[g.selectedHero.id].skills[g.aimSkill];
+      key = 's' + g.aimSkill + g.selectedHero.id;
+      html = `<span class="mb-ico">${s.icon}</span><span class="mb-txt"><b>${s.name}</b><small>${IS_TOUCH ? '点击 / 拖动到目标处松手施放' : '点击地面施放 · 右键取消'}</small></span>`;
+    } else if (g.buildType) {
+      const d = TOWERS[g.buildType];
+      key = 'b' + g.buildType;
+      html = `<span class="mb-ico">${d.icon}</span><span class="mb-txt"><b>建造${d.name} · 💰${g.towerCost(g.buildType, 0)}</b><small>${IS_TOUCH ? '点击空地建造（可拖动预览位置）' : '点击空地建造 · Shift 连续建造 · 右键取消'}</small></span>`;
+    }
+    if (key === this.modeKey) return;
+    this.modeKey = key;
+    const mb = this.$('mode-bar');
+    mb.classList.toggle('hidden', !key);
+    if (!key) return;
+    mb.innerHTML = html + '<button class="btn small mb-cancel">✖ 取消</button>';
+    mb.querySelector('.mb-cancel').addEventListener('click', (e) => { e.stopPropagation(); audio.play('click'); g.cancelModes(); });
+  }
+
   floatText(pos, text, color = '#fff', big = false) {
-    if (this.floats.length > 40) { const f = this.floats.shift(); f.el.remove(); }
+    if (this.floats.length > QUALITY.maxFloats) { const f = this.floats.shift(); f.el.remove(); }
     const e = el('div', 'float-text' + (big ? ' big' : ''), String(text));
     e.style.color = color;
     this.$('floats').appendChild(e);
@@ -440,7 +581,7 @@ export class GameUI {
       <h2>✨ 第 ${this.game.wave} 波胜利！选择一张卡牌加入卡组</h2>
       <div class="reward-cards">${ids.map((id) => cardHTML(id)).join('')}</div>
       <div class="rw-btns"><button class="btn" id="rw-thin">✂ 改为精简卡组（移除一张）</button><button class="btn" id="rw-skip">跳过（+35 金币）</button></div>
-      <div class="thin-list hidden" id="rw-thin-list"></div>
+      <div class="thin-list scroll-y hidden" id="rw-thin-list"></div>
     </div>`;
     o.querySelectorAll('.card').forEach((c, i) => {
       c.style.animationDelay = `${i * 0.12}s`;
@@ -546,7 +687,7 @@ export class GameUI {
     }
   }
 
-  dispose() { this.root.remove(); }
+  dispose() { this.root.remove(); document.removeEventListener('pointerdown', this._docDown, true); }
 }
 
 function statLine(d, lv, mul = 1) {

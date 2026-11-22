@@ -7,8 +7,10 @@
   font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Hiragino Sans GB', system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #070912; color: var(--text); user-select: none; }
-#app, #app canvas { position: fixed; inset: 0; display: block; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #070912; color: var(--text); user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; touch-action: none; position: fixed; inset: 0; }
+#app, #app canvas { position: fixed; inset: 0; display: block; touch-action: none; }
+.scroll-y { touch-action: pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+button { touch-action: manipulation; }
 #screen-flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; z-index: 5; mix-blend-mode: screen; }
 #ui { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
 #ui .hud > *, #ui .screen { pointer-events: auto; }
@@ -294,3 +296,223 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #070912; col
 .dbs.tier2 { box-shadow: 0 0 10px color-mix(in srgb, var(--sc) 60%, transparent); }
 .dbs b { color: var(--sc); }
 .topbar .relic-bar:empty, .topbar .syn-bar:empty { display: none; }
+
+
+/* ---------- 模式提示条 / 拖拽 / 坚守按钮 ---------- */
+.mode-bar { position: absolute; top: 58px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--gold); border-radius: 12px; padding: 6px 8px 6px 10px; box-shadow: 0 0 18px rgba(255,210,87,.25); animation: mbIn .2s ease-out; z-index: 6; max-width: 94vw; }
+@keyframes mbIn { from { opacity: 0; transform: translate(-50%, -10px); } }
+.mb-ico { font-size: 24px; filter: drop-shadow(0 0 8px var(--cc, #fff)); }
+.mb-txt { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.mb-txt b { font-size: 14px; white-space: nowrap; }
+.mb-txt small { font-size: 11px; color: var(--muted); }
+.mb-cancel { flex: none; }
+.drag-ghost { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; will-change: transform; }
+.drag-ghost span { position: absolute; left: -28px; top: -86px; width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; background: radial-gradient(circle, color-mix(in srgb, var(--cc) 55%, transparent), rgba(10,12,26,.7) 70%); border: 2px solid var(--cc); box-shadow: 0 0 22px var(--cc); transition: opacity .15s, transform .15s; }
+.drag-ghost::after { content: ''; position: absolute; left: -2px; top: -32px; width: 4px; height: 30px; background: linear-gradient(var(--cc), transparent); border-radius: 2px; }
+.drag-ghost.over-ui span { opacity: .45; transform: scale(.8); filter: grayscale(.8); }
+.hold-btn { font: inherit; color: var(--text); width: 42px; height: 54px; border-radius: 10px; border: 1px solid rgba(160,190,255,.3); background: rgba(40,50,90,.6); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 18px; padding: 0; }
+.hold-btn small { font-size: 10px; color: var(--muted); }
+.hold-btn.on { border-color: #7ad8ff; box-shadow: 0 0 10px rgba(122,216,255,.5); background: rgba(40,90,130,.7); }
+.tp-close { flex: 0 0 auto !important; padding: 8px 10px !important; }
+.danger-vignette { position: fixed; inset: 0; pointer-events: none; z-index: 4; box-shadow: inset 0 0 120px 30px rgba(255,0,0,.55); opacity: 0; transition: opacity .4s; }
+.danger-vignette.on { animation: heartbeat 1.1s ease-in-out infinite; }
+@keyframes heartbeat { 0%, 100% { opacity: .15; } 15% { opacity: .75; } 30% { opacity: .25; } 45% { opacity: .6; } }
+.screen-fade { position: fixed; inset: 0; background: #05070f; z-index: 100; pointer-events: none; opacity: 0; transition: opacity .28s ease; }
+.screen-fade.on { opacity: 1; }
+.screen > * { animation: screenIn .35s ease-out; }
+@keyframes screenIn { from { opacity: 0; transform: translateY(14px) scale(.98); } }
+.fs-btn { position: absolute; top: calc(10px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); }
+
+/* ---------- 触屏：去掉悬停位移，键位提示隐藏 ---------- */
+.touch .kbd, .touch .card-key { display: none; }
+.touch .btn:hover, .touch .map-card:hover, .touch .relic-card:hover, .touch .build-btn:hover, .touch .col-slot .card:hover { transform: none; filter: none; }
+.touch .hand-slot:hover:not(.pending) { transform: translateY(calc(var(--ty) + 4px)) rotate(var(--rot)); }
+.touch .reward-cards .card:hover { transform: scale(1.35); }
+.btn:active, .build-btn:active, .hero-btn:active, .skill-btn:active, .hold-btn:active { filter: brightness(1.35); }
+
+/* =========================================================
+   手机 / 小屏布局（body.compact）
+   ========================================================= */
+.compact .topbar { top: calc(6px + env(safe-area-inset-top)); left: calc(6px + env(safe-area-inset-left)); right: calc(6px + env(safe-area-inset-right)); gap: 5px; flex-wrap: wrap; }
+.compact .stat { padding: 4px 8px; font-size: 14px; gap: 4px; border-radius: 8px; }
+.compact .stat b { min-width: 0; }
+.compact .stat .ico { font-size: 13px; }
+.compact .stat.map-name { display: none; }
+.compact .topbar .btn.small { min-width: 38px; height: 34px; padding: 0 8px; font-size: 14px; }
+.compact .topbar .spacer { min-width: 0; }
+.compact .relic-bar, .compact .syn-bar { gap: 3px; }
+.compact .relic { width: 28px; height: 28px; font-size: 15px; border-radius: 7px; }
+.compact .syn { padding: 2px 5px; font-size: 13px; }
+.compact .mode-bar { top: calc(46px + env(safe-area-inset-top)); padding: 4px 6px 4px 8px; gap: 6px; }
+.compact .mode-bar .mb-cancel { min-height: 36px; padding: 0 10px; font-size: 13px; }
+.compact .mb-ico { font-size: 20px; }
+.compact .mb-txt b { font-size: 13px; }
+.compact .mb-txt small { font-size: 10px; }
+
+/* 建造栏：竖排图标按钮 */
+.compact .build-panel { width: auto; right: calc(6px + env(safe-area-inset-right)); padding: 4px; gap: 4px; border-radius: 10px; }
+.compact .build-panel .panel-title { display: none; }
+.compact .build-btn { width: 50px; height: 50px; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; border-radius: 9px; }
+.compact .build-btn .bi { font-size: 22px; line-height: 1; }
+.compact .build-btn .bn { display: none; }
+.compact .build-btn .bc { font-size: 10px; }
+
+/* 防御塔面板 */
+.compact .tower-panel { width: auto; padding: 8px 10px; font-size: 12px; z-index: 7; }
+.compact .tp-title { font-size: 15px; margin-bottom: 2px; }
+.compact .tp-next { margin: 4px 0 8px; font-size: 11px; }
+.compact .tp-btns .btn { min-height: 40px; }
+
+/* 英雄 + 技能：一行 */
+.compact .hero-panel { width: auto; padding: 5px 6px; display: flex; align-items: center; gap: 6px; border-radius: 10px; }
+.compact .hero-panel .panel-title { display: none; }
+.compact .hero-list { flex-direction: row; gap: 4px; }
+.compact .hero-btn { flex-direction: column; width: 44px; padding: 2px; gap: 1px; align-items: center; border-radius: 8px; }
+.compact .hp-face { width: 34px; height: 34px; font-size: 18px; }
+.compact .hero-info { width: 100%; }
+.compact .hn { display: none; }
+.compact .hbar { height: 4px; margin: 1px 0 0; }
+.compact .hs { font-size: 9px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: clip; line-height: 1.2; }
+.compact .skill-bar { margin: 0; gap: 4px; min-height: 0; flex: 1; justify-content: flex-end; position: relative; }
+.compact .skill-btn { width: 50px; height: 50px; }
+.compact .skill-btn .si { font-size: 22px; }
+.compact .hold-btn { width: 36px; height: 50px; font-size: 16px; }
+.compact .passive-ico { width: 26px; height: 26px; font-size: 13px; }
+.compact .skill-hint { font-size: 11px; }
+.compact .pts-badge { right: auto; left: -4px; top: -10px; }
+.touch .skill-btn .learn { width: 26px; height: 26px; line-height: 26px; font-size: 19px; top: -4px; right: -4px; }
+
+/* 手牌：迷你卡 */
+.compact .hand-area { left: 0; right: 0; bottom: calc(4px + env(safe-area-inset-bottom)); }
+.compact .mana-wrap { width: min(92vw, 420px); margin-bottom: 2px; gap: 6px; }
+.compact .mana-orb { width: 30px; height: 30px; font-size: 15px; }
+.compact .mana-track { height: 10px; }
+.compact .hand { height: 96px; }
+.compact .hand .card { width: 62px; height: 88px; padding: 3px; border-radius: 9px; }
+.compact .hand .card-art { height: 44px; font-size: 26px; border-radius: 6px; }
+.compact .hand .card-name { font-size: 10.5px; margin-top: 3px; white-space: nowrap; overflow: hidden; max-width: 100%; text-overflow: ellipsis; }
+.compact .hand .card-desc, .compact .hand .card-rarity { display: none; }
+.compact .hand .card-cost { width: 22px; height: 22px; font-size: 13px; top: -6px; left: -6px; }
+.compact .hand .card-school { width: 18px; height: 18px; font-size: 9px; top: -6px; right: -6px; }
+.compact .hand-slot { margin: 0 -2px; }
+.compact .hand-slot.pending { transform: translateY(-14px) scale(1.12); }
+.compact .pile-info { position: absolute; left: auto; right: 6px; top: -26px; padding: 3px 7px; font-size: 11px; gap: 6px; }
+.compact .combo-timer { position: absolute; top: -26px; left: 6px; }
+
+/* 波次按钮 / 预览 */
+.compact .wave-btn { font-size: 15px; padding: 10px 14px; min-height: 46px; }
+.compact .wave-preview { font-size: 14px; padding: 4px 8px; gap: 4px; max-width: 200px; }
+.compact .wp-title { font-size: 10px; }
+
+/* 提示 / 横幅 / 浮字 */
+.compact .toasts { left: 6px; top: calc(84px + env(safe-area-inset-top)); max-width: 70vw; }
+.compact .toast { font-size: 12px; padding: 5px 10px; }
+.compact .banner .bt { font-size: 32px; letter-spacing: 3px; }
+.compact .banner .bs { font-size: 13px; padding: 0 12px; }
+.compact .banner { top: 22%; }
+.compact .boss-bar { width: 62vw; top: calc(84px + env(safe-area-inset-top)); }
+.compact .boss-name { font-size: 12px; letter-spacing: 1px; }
+.compact .boss-track { height: 10px; }
+.compact .cast-flash span { font-size: 46px; }
+.compact .cast-flash b { font-size: 20px; }
+.compact .combo-pop { font-size: 24px; bottom: 45%; }
+.compact .float-text { font-size: 13px; }
+.compact .float-text.big { font-size: 17px; }
+.compact .tooltip { max-width: min(320px, 88vw); font-size: 12px; }
+
+/* —— 竖屏 —— */
+.compact.portrait .build-panel { top: calc(88px + env(safe-area-inset-top)); }
+.compact.portrait .tower-panel { top: calc(88px + env(safe-area-inset-top)); left: 6px; right: 68px; }
+.compact.portrait .hero-panel { left: 6px; right: 6px; bottom: calc(132px + env(safe-area-inset-bottom)); }
+.compact.portrait .wave-btn { right: 6px; bottom: calc(206px + env(safe-area-inset-bottom)); }
+.compact.portrait .wave-preview { right: auto; left: 6px; bottom: calc(206px + env(safe-area-inset-bottom)); max-width: calc(100vw - 190px); }
+
+/* —— 横屏（矮屏）—— */
+.compact.landscape .build-panel { top: calc(48px + env(safe-area-inset-top)); display: grid; grid-template-columns: 1fr 1fr; }
+.compact.landscape .build-btn { width: 46px; height: 46px; }
+.compact.landscape .tower-panel { top: calc(48px + env(safe-area-inset-top)); right: 116px; width: 270px; }
+.compact.landscape .hero-panel { left: calc(6px + env(safe-area-inset-left)); bottom: calc(6px + env(safe-area-inset-bottom)); flex-direction: column; align-items: stretch; max-width: 230px; }
+.compact.landscape .skill-bar { justify-content: center; }
+.compact.landscape .hand-area { left: 240px; right: 150px; }
+.compact.landscape .wave-btn { right: calc(6px + env(safe-area-inset-right)); bottom: calc(6px + env(safe-area-inset-bottom)); }
+.compact.landscape .wave-preview { right: calc(6px + env(safe-area-inset-right)); bottom: 62px; max-width: 140px; }
+.compact.landscape .toasts { top: 48px; left: calc(6px + env(safe-area-inset-left)); }
+.compact.landscape .boss-bar { top: 46px; width: 40vw; }
+
+/* —— 菜单 / 面板 —— */
+.compact .title-wrap { gap: 22px; padding: 0 16px; }
+.compact .logo h1 { font-size: 52px; letter-spacing: 6px; }
+.compact .logo-sub { font-size: 12px; letter-spacing: 8px; }
+.compact .logo-tag { font-size: 15px; letter-spacing: 5px; }
+.compact .btn.big { min-width: 230px; font-size: 18px; padding: 13px 22px; }
+.compact.landscape .title-wrap { flex-direction: row; gap: 40px; }
+.compact.landscape .title-foot { display: none; }
+.compact .panel-box { padding: 16px 14px; border-radius: 14px; max-width: 96vw; max-height: 94dvh; }
+.compact .panel-box h2 { font-size: 20px; margin-bottom: 10px; }
+.compact .map-list { grid-template-columns: 1fr; gap: 10px; }
+.compact.landscape .map-list { grid-template-columns: repeat(2, 1fr); }
+.compact .map-card { min-height: 0; padding: 12px 14px; }
+.compact .map-icon { font-size: 30px; float: left; margin-right: 10px; }
+.compact .map-card h3 { font-size: 17px; margin: 2px 0 4px; }
+.compact .map-card p { font-size: 12px; margin: 4px 0 8px; clear: both; }
+.compact .help-cols { grid-template-columns: 1fr; gap: 6px; font-size: 13px; }
+.compact .deck-builder { display: flex; flex-direction: column; width: 96vw; height: 94dvh; gap: 8px; }
+.compact .db-left { flex: 1.4; }
+.compact .db-right { flex: 1; min-height: 0; }
+.compact.landscape .deck-builder { flex-direction: row; }
+.compact.landscape .db-right { width: 230px; flex: none; }
+.compact .db-head { flex-direction: column; align-items: stretch; gap: 6px; }
+.compact .db-head h2 { margin: 0; }
+.compact .db-filters { justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; touch-action: pan-x; padding-bottom: 2px; }
+.compact .db-filters .btn { flex: none; min-height: 34px; }
+.compact .collection { gap: 10px 6px; padding: 8px 2px; justify-content: center; }
+.compact .collection .card { width: 100px; height: 148px; padding: 4px; }
+.compact .collection .card-art { height: 46px; font-size: 26px; }
+.compact .collection .card-name { font-size: 12px; }
+.compact .collection .card-desc { font-size: 9px; line-height: 1.3; }
+.compact .db-right h2 { font-size: 16px; margin: 0 0 4px; }
+.compact .curve { height: 34px; margin-bottom: 4px; }
+.compact .db-syn { grid-template-columns: repeat(3, 1fr); }
+.compact .dbs small { display: none; }
+.compact .deck-row { padding: 7px 10px; }
+.compact .db-btns { margin-top: 6px; }
+.compact .db-btns .btn { min-height: 38px; }
+.compact .reward-box { padding: 12px 8px; width: 100%; }
+.compact .reward-box h2 { font-size: 17px; margin: 6px 0; }
+.compact .reward-cards { gap: 10px; margin: 18px 0; flex-wrap: wrap; }
+.compact .reward-cards .card { transform: none; width: 108px; height: 160px; }
+.compact .reward-cards .card .card-desc { font-size: 10px; }
+.touch.compact .reward-cards .card:hover { transform: none; }
+.compact .reward-cards.relics { gap: 8px; margin: 12px 0; }
+.compact .relic-card { width: 30vw; max-width: 170px; min-height: 0; padding: 10px 6px; gap: 6px; }
+.compact .rc-icon { font-size: 34px; }
+.compact .rc-name { font-size: 14px; }
+.compact .rc-desc { font-size: 11px; }
+.compact .rw-btns { flex-direction: column; align-items: center; gap: 8px; }
+.compact .end-box { min-width: 0; width: 92vw; padding: 18px 14px; }
+.compact .end-box h1 { font-size: 32px; }
+.compact .end-stats { flex-wrap: wrap; gap: 12px 18px; }
+.compact .end-stats b { font-size: 22px; }
+.compact .end-btns .btn { min-height: 44px; }
+.compact .overlay { align-items: safe center; overflow-y: auto; }
+
+/* —— 修正：顶栏排序 / 手牌不旋转下沉 / 竖屏技能行 —— */
+.compact .topbar .relic-bar { order: 10; }
+.compact .topbar .syn-bar { order: 11; }
+.compact.portrait .topbar .relic-bar:not(:empty) { margin-left: 0; }
+.compact.portrait .topbar::after { content: ''; order: 9; flex-basis: 100%; height: 0; }
+.compact .hand-slot { transform: translateY(calc(var(--ty) * .35)) rotate(calc(var(--rot) * .5)); }
+.compact .hand-slot.drawn { animation: drawInC .4s ease-out; }
+@keyframes drawInC { from { transform: translate(120px, 60px) scale(.4); opacity: 0; } }
+.compact.portrait .mode-bar { top: calc(86px + env(safe-area-inset-top)); }
+.compact.portrait .toasts { top: calc(132px + env(safe-area-inset-top)); }
+.compact.portrait .boss-bar { top: calc(132px + env(safe-area-inset-top)); }
+.compact.portrait .passive-ico { display: none; }
+.compact.portrait .hero-btn { width: 40px; }
+.compact.portrait .hp-face { width: 32px; height: 32px; font-size: 17px; }
+.compact.portrait .skill-btn { width: 46px; height: 48px; }
+.compact.portrait .hold-btn { width: 32px; height: 48px; font-size: 15px; }
+.compact.portrait .hold-btn small { font-size: 9px; }
+.compact .pile-info { top: -2px; right: 4px; }
+.compact .mana-wrap { width: min(70vw, 360px); }
+.compact.landscape .pile-info { top: -4px; right: 0; }
