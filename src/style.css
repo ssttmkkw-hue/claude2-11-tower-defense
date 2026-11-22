@@ -299,7 +299,7 @@ button { touch-action: manipulation; }
 
 
 /* ---------- 模式提示条 / 拖拽 / 坚守按钮 ---------- */
-.mode-bar { position: absolute; top: 58px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--gold); border-radius: 12px; padding: 6px 8px 6px 10px; box-shadow: 0 0 18px rgba(255,210,87,.25); animation: mbIn .2s ease-out; z-index: 6; max-width: 94vw; }
+.mode-bar { position: absolute; top: 118px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--gold); border-radius: 12px; padding: 6px 8px 6px 10px; box-shadow: 0 0 18px rgba(255,210,87,.25); animation: mbIn .2s ease-out; z-index: 6; max-width: 94vw; }
 @keyframes mbIn { from { opacity: 0; transform: translate(-50%, -10px); } }
 .mb-ico { font-size: 24px; filter: drop-shadow(0 0 8px var(--cc, #fff)); }
 .mb-txt { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
