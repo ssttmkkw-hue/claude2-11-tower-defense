@@ -226,6 +226,34 @@ class AudioEngine {
         this.tone({ type: 'sawtooth', f0: 880, f1: 220, t: 1.2, vol: 0.08 * v, rev: true });
         this.noise({ t: 1.5, vol: 0.2 * v, filter: 'bandpass', f0: 1500, q: 0.5, attack: 0.1, rev: true });
         break;
+      case 'roar':
+        this.tone({ type: 'sawtooth', f0: 140, f1: 50, t: 1.2, vol: 0.25 * v, attack: 0.08, rev: true });
+        this.tone({ type: 'square', f0: 95, f1: 40, t: 1.0, vol: 0.1 * v, attack: 0.1, detune: 20 });
+        this.noise({ t: 1.1, vol: 0.3 * v, filter: 'bandpass', f0: 500, f1: 200, q: 1, attack: 0.1, rev: true });
+        break;
+      case 'blink':
+        this.tone({ type: 'sine', f0: 1800, f1: 200, t: 0.35, vol: 0.12 * v, rev: true });
+        this.tone({ type: 'sine', f0: 200, f1: 1600, t: 0.3, vol: 0.1 * v, delay: 0.2, rev: true });
+        break;
+      case 'shield':
+        this.tone({ type: 'triangle', f0: 520, f1: 780, t: 0.4, vol: 0.1 * v, rev: true });
+        this.tone({ type: 'sine', f0: 1040, t: 0.5, vol: 0.06 * v, delay: 0.05, rev: true });
+        break;
+      case 'whoosh':
+        this.noise({ t: 0.35, vol: 0.12 * v, filter: 'bandpass', f0: 400, f1: 2400, q: 1.2, attack: 0.08 });
+        break;
+      case 'heartbeat':
+        this.tone({ type: 'sine', f0: 70, f1: 45, t: 0.16, vol: 0.4 * v });
+        this.tone({ type: 'sine', f0: 65, f1: 40, t: 0.18, vol: 0.3 * v, delay: 0.22 });
+        break;
+      case 'perfect':
+        [784, 988, 1175, 1568].forEach((f, i) => this.tone({ type: 'triangle', f0: f, t: 0.35, vol: 0.09 * v, delay: i * 0.09, rev: true }));
+        this.tone({ type: 'sine', f0: 2093, t: 0.8, vol: 0.05 * v, delay: 0.36, rev: true });
+        break;
+      case 'nova':
+        this.tone({ type: 'sine', f0: 60, f1: 600, t: 2.0, vol: 0.18 * v, attack: 1.6, rev: true });
+        this.noise({ t: 2.0, vol: 0.2 * v, filter: 'bandpass', f0: 200, f1: 4000, q: 1, attack: 1.8, rev: true });
+        break;
       default: break;
     }
   }

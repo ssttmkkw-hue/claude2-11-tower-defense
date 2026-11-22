@@ -30,6 +30,8 @@ function setBar(bar, ratio) {
   fg.scale.x = Math.max(0.001, width * ratio);
 }
 
+const def_regen = (e) => !!e.def.regen;
+
 // ---------- 敌人 ----------
 export class Enemy {
   constructor(game, type, pathIdx, scale, startDist = 0, lateral = null) {
@@ -68,6 +70,55 @@ export class Enemy {
     this.updatePos(0);
     // 冻结外壳
     this.iceShell = null;
+    this.shieldedUntil = 0;
+    this.barrierUntil = 0;
+    this.lastHit = -9;
+    this.enraged = false;
+    this.barrierMarks = this.def.blink ? [0.66, 0.33] : [];
+    this.barrierMesh = null;
+  }
+
+  // 自爆地精：死亡或被阻挡时爆炸，伤害并眩晕附近友军
+  explode() {
+    if (this.exploded) return;
+    this.exploded = true;
+    const g = this.game;
+    const p = this.pos.clone(); p.y = 0.3;
+    g.fx.explosion(p, 0xff8a2a, 0.8);
+    g.fx.shake(0.25);
+    audio.play('explode', 0.7);
+    for (const u of g.units) {
+      if (u.alive && !u.flying && u.pos.distanceToSquared(p) < 2.6 * 2.6) { u.takeDamage(110); u.stunUntil = Math.max(u.stunUntil || 0, g.time + 1); }
+    }
+  }
+
+  // 首领半血狂暴
+  enrage() {
+    this.enraged = true;
+    const g = this.game;
+    g.fx.ring(this.pos, 0xff3a2a, 6, 0.8);
+    g.fx.burst(this.center, { count: 60, color: 0xff4a2a, color2: 0xffcc66, intensity: 3, speed: 7, life: 0.9, size: 0.9, up: 2 });
+    g.fx.shake(0.7);
+    g.fx.screenFlash('rgba(255,40,20,0.45)', 0.4);
+    audio.play('roar');
+    g.ui.banner(`${this.def.name} 狂暴了！`, '#ff5a3a', '移动与技能频率提升');
+    for (const m of this.mesh.userData.flash) if (m.color) m.color.lerp(new THREE.Color(0xff3a2a), 0.35);
+  }
+
+  startBarrier() {
+    const g = this.game;
+    this.barrierUntil = g.time + 3.5;
+    audio.play('void', 0.8);
+    g.ui.toast(`🛡 ${this.def.name} 展开虚空屏障（受到伤害 -90%）并召唤仆从！`);
+    if (!this.barrierMesh) {
+      this.barrierMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(this.def.size * 2.1, 1), new THREE.MeshBasicMaterial({ color: 0xb06aff, transparent: true, opacity: 0.28, wireframe: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      g.scene.add(this.barrierMesh);
+    }
+    for (let i = 0; i < 5; i++) {
+      const m = new Enemy(g, 'voidling', this.pathIdx, g.waveScale, Math.max(0, this.dist - 0.5 - i * 0.7), rand(-0.7, 0.7));
+      g.enemies.push(m);
+    }
+    g.fx.burst(this.center, { count: 50, color: 0xb06aff, intensity: 3, speed: 6, life: 0.9, size: 0.8 });
   }
 
   get center() { return _v2.set(this.pos.x, this.pos.y + (this.boss ? 1.5 : 0.6) * this.def.size, this.pos.z); }
@@ -103,21 +154,46 @@ export class Enemy {
       if (Math.random() < dt * 12) g.fx.trail(this.center, 0xff6a1a, 0.9, 0.5, 0.3, 2);
       if (!this.alive) return;
     }
-    let speedMul = t < this.slowUntil ? this.slowMul : 1;
+    // 再生（灼烧或近期受击时停止）
+    if (def_regen(this) && t >= this.burnUntil && t - this.lastHit > 1.5 && this.hp < this.maxHp) {
+      this.hp = Math.min(this.maxHp, this.hp + this.maxHp * this.def.regen * dt);
+      if (Math.random() < dt * 3) g.fx.trail(_v.set(this.pos.x + rand(-0.4, 0.4), this.pos.y + 1, this.pos.z + rand(-0.4, 0.4)), 0x66ff66, 0.6, 0.6, 0, 1.5);
+    }
+    // 首领阶段
+    if (this.boss) {
+      const r = this.hp / this.maxHp;
+      if (!this.enraged && r <= 0.5) this.enrage();
+      if (this.barrierMarks.length && r <= this.barrierMarks[0]) { this.barrierMarks.shift(); this.startBarrier(); }
+      if (this.barrierMesh) {
+        if (t < this.barrierUntil) {
+          this.barrierMesh.position.set(this.pos.x, this.pos.y + this.def.size * 1.4, this.pos.z);
+          this.barrierMesh.rotation.y += dt * 1.5; this.barrierMesh.rotation.x += dt * 0.7;
+          this.barrierMesh.material.opacity = 0.22 + Math.sin(t * 10) * 0.08;
+        } else { g.scene.remove(this.barrierMesh); this.barrierMesh.geometry.dispose(); this.barrierMesh.material.dispose(); this.barrierMesh = null; }
+      }
+    }
+    let speedMul = (t < this.slowUntil ? this.slowMul : 1) * (this.enraged ? 1.3 : 1);
     if (this.zoneSlow) { speedMul = Math.min(speedMul, this.zoneSlow); this.zoneSlow = 0; }
     // 被阻挡
     if (this.blockedBy && (!this.blockedBy.alive || this.flying)) this.blockedBy = null;
     if (!frozen && !stunned) {
       if (this.blockedBy) {
         this.atkCD -= dt;
+        if (this.def.bomb) {
+          // 被阻挡：直接引爆
+          this.blockedBy.takeDamage(60);
+          this.hp = 0;
+          g.killEnemy(this, null);
+          return;
+        }
         if (this.atkCD <= 0) {
-          this.atkCD = this.boss ? 1.6 : 1.2;
+          this.atkCD = this.boss ? (this.enraged ? 1.1 : 1.6) : 1.2;
           const dmg = this.def.atk || (12 + this.maxHp * 0.03);
           this.blockedBy.takeDamage(dmg);
           this.attackAnim = 0.3;
         }
       } else {
-        this.dist += this.def.speed * speedMul * dt;
+        this.dist += this.def.speed * Math.min(speedMul, this.enraged ? 1.3 : 1) * dt;
         if (this.dist >= this.path.length) { g.leak(this); return; }
       }
       this.special(dt, t);
@@ -156,7 +232,31 @@ export class Enemy {
   special(dt, t) {
     const g = this.game;
     const def = this.def;
-    this.specialCD -= dt;
+    this.specialCD -= dt * (this.enraged ? 1.5 : 1);
+    if (def.aura) {
+      this.auraT = (this.auraT || 0) - dt;
+      if (this.auraT <= 0) {
+        this.auraT = 0.4;
+        for (const e of g.enemies) if (e !== this && e.alive && e.pos.distanceToSquared(this.pos) < 3.5 * 3.5) e.shieldedUntil = t + 0.6;
+      }
+      if (this.specialCD <= 0) { this.specialCD = 2.2; g.fx.ring(this.pos, 0x7ad8ff, 3.5, 0.6); }
+    }
+    if (def.bomb && Math.random() < dt * 10) g.fx.trail(_v.set(this.pos.x, this.pos.y + 1.2, this.pos.z), 0xffaa22, 0.4, 0.3, 0.1, 3);
+    if (def.blink && this.specialCD <= 0) {
+      // 相位跃迁：沿路径向前闪烁
+      this.specialCD = 9;
+      const from = this.centerClone();
+      g.fx.burst(from, { count: 40, color: 0x8a3aff, intensity: 3, speed: 5, life: 0.6, size: 0.8 });
+      g.fx.ring(this.pos, 0xb06aff, 3, 0.5);
+      this.dist = Math.min(this.path.length - 3, this.dist + 5);
+      this.blockedBy = null;
+      this.updatePos(0);
+      const to = this.centerClone();
+      g.fx.lightning(from, to, 0xc06aff, 0.25, 0.35, false);
+      g.fx.burst(to, { count: 40, color: 0xc06aff, intensity: 3, speed: 5, life: 0.6, size: 0.8 });
+      g.fx.light(to, 0xb06aff, 6, 10, 0.4);
+      audio.play('blink');
+    }
     if (def.phase) {
       const ph = this.isPhased(t);
       const m = this.mesh.userData.parts.ghostMat;
@@ -252,6 +352,12 @@ export class Enemy {
         if (p.orbiters) p.orbiters.forEach((o, i) => o.position.set(Math.cos(t * 2 + i * 2.1) * 1.1, 1.6 + Math.sin(t * 3 + i) * 0.3, Math.sin(t * 2 + i * 2.1) * 1.1));
         if (Math.random() < dt * 10) this.game.fx.trail(_v.set(this.pos.x + rand(-0.5, 0.5), this.pos.y + 0.3, this.pos.z + rand(-0.5, 0.5)), 0x6c3bd0, 1.2, 0.8, 0, 1.5);
         break;
+      case 'voidlord':
+        body.position.y = Math.sin(t * 1.6) * 0.2 + 0.2;
+        body.rotation.y = Math.sin(t * 0.7) * 0.3;
+        if (p.orbiters) p.orbiters.forEach((o, i) => { const a = t * 1.8 + i * 1.2566; o.position.set(Math.cos(a) * 1.7, 2 + Math.sin(t * 3 + i) * 0.4, Math.sin(a) * 1.7); o.rotation.y = a; });
+        if (Math.random() < dt * 8) this.game.fx.trail(_v.set(this.pos.x + rand(-0.8, 0.8), this.pos.y + 0.4, this.pos.z + rand(-0.8, 0.8)), 0x8a3aff, 1.3, 0.8, 0, 1.6);
+        break;
       case 'golem':
         if (p.arms) p.arms.forEach((a, i) => (a.rotation.x = this.attackAnim > 0 ? -2.0 * (this.attackAnim / 0.5) : Math.sin(t * 3 * sp + i * Math.PI) * 0.4));
         body.rotation.z = Math.sin(t * 3 * sp) * 0.06;
@@ -270,6 +376,7 @@ export class Enemy {
     this.game.scene.remove(this.barHolder);
     this.bar.userData.fg.material.dispose();
     for (const m of this.mesh.userData.flash) m.dispose();
+    if (this.barrierMesh) { this.game.scene.remove(this.barrierMesh); this.barrierMesh.geometry.dispose(); this.barrierMesh.material.dispose(); this.barrierMesh = null; }
     if (this.iceShell) { this.game.scene.remove(this.iceShell); this.iceShell.geometry.dispose(); this.iceShell.material.dispose(); }
   }
 }
@@ -349,7 +456,9 @@ export class Tower {
       if (Math.random() < dt * 4) g.fx.trail(_v.set(this.pos.x + rand(-0.6, 0.6), 1, this.pos.z + rand(-0.6, 0.6)), 0x4ac8ff, 0.6, 1.2, 0, 2);
       return;
     }
-    const haste = g.towerHasteMul;
+    const oc = g.time < (this.overclockUntil || 0);
+    const haste = g.towerHasteMul * (oc ? 2 : 1);
+    if (oc && Math.random() < dt * 8) g.fx.trail(_v.set(this.pos.x + rand(-0.6, 0.6), 2 + rand(0, 1.5), this.pos.z + rand(-0.6, 0.6)), 0x5cf0ff, 0.6, 0.5, 0, 2.5);
     if (g.time < g.buffs.towerHaste && Math.random() < dt * 6) g.fx.trail(_v.set(this.pos.x + rand(-0.8, 0.8), 0.5, this.pos.z + rand(-0.8, 0.8)), 0xff5a3a, 0.7, 0.6, 0, 2);
     this.cd -= dt * haste;
     if (this.def.pulse) {

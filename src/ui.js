@@ -144,6 +144,7 @@ export class GameUI {
       <div class="wave-preview" id="wave-preview"></div>
       <button class="btn primary wave-btn" id="bt-wave">⚔ 开始第 1 波 <small class="kbd">(空格)</small></button>
       <div class="help-tip ${IS_TOUCH ? 'hidden' : ''}">左键：选择/移动 · 点敌人：集火 · WASD：操控 · 按住 Q/E/R 瞄准松开施放 · Shift+Q/E/R：学习技能 · H：坚守 · 1-9：出牌</div>
+      <div class="danger-vignette" id="danger"></div>
       <div class="banner" id="banner"></div>
       <div class="toasts" id="toasts"></div>
       <div class="floats" id="floats"></div>
@@ -383,9 +384,22 @@ export class GameUI {
     box.classList.remove('hidden');
     box.innerHTML = `<div class="wp-title">下一波</div>` + Object.entries(pv).map(([t, c]) => {
       const e = ENEMIES[t];
-      const tags = [e.flying ? '飞行' : '', e.armor >= 0.4 ? '重甲' : '', e.mres >= 0.3 ? '魔抗' : '', e.phase ? '相位' : '', e.healer ? '治疗' : '', e.splits ? '分裂' : ''].filter(Boolean).join(' ');
-      return `<span class="wp-e ${e.boss ? 'boss' : ''}" title="${e.name}${tags ? '（' + tags + '）' : ''}">${e.icon}<b>×${c}</b></span>`;
+      const tags = [e.flying ? '飞行' : '', e.armor >= 0.4 ? '重甲' : '', e.mres >= 0.3 ? '魔抗' : '', e.phase ? '相位' : '', e.healer ? '治疗' : '', e.splits ? '分裂' : '', e.regen ? '再生' : '', e.bomb ? '自爆' : '', e.aura ? '护盾光环' : '', e.blink ? '闪烁' : '', e.boss ? '首领' : ''].filter(Boolean).join(' ');
+      return `<span class="wp-e ${e.boss ? 'boss' : ''}" data-t="${t}" title="${e.name}${tags ? '（' + tags + '）' : ''}">${e.icon}<b>×${c}</b></span>`;
     }).join('');
+    if (!box.dataset.bound) {
+      box.dataset.bound = '1';
+      const tipHtml = () => {
+        const p2 = wavePreview(g.map, g.wave + 1);
+        return `<b>第 ${g.wave + 1} 波</b><br>` + Object.entries(p2).map(([t, c]) => {
+          const e = ENEMIES[t];
+          const tags = [e.flying ? '飞行' : '', e.armor >= 0.4 ? '重甲' : '', e.mres >= 0.3 ? '魔抗' : '', e.phase ? '相位(免疫物理)' : '', e.healer ? '治疗友军' : '', e.splits ? '死亡分裂' : '', e.regen ? '再生(灼烧可抑制)' : '', e.bomb ? '自爆眩晕英雄' : '', e.aura ? '周围敌人减伤30%' : '', e.blink ? '向前闪烁/虚空屏障' : ''].filter(Boolean).join('、');
+          return `${e.icon} ${e.name} ×${c}${tags ? ` <small>${tags}</small>` : ''}`;
+        }).join('<br>');
+      };
+      this.bindTip(box, tipHtml);
+      if (IS_TOUCH) box.addEventListener('click', () => this.tapTip(box, tipHtml()));
+    }
   }
 
   updateBuildButtons() {
@@ -490,6 +504,13 @@ export class GameUI {
     }
     if (g.aimSkill < 0) this.aimFromButton = false;
     this.updateModeBar();
+    // 低生命心跳警告
+    const danger = g.lives <= 5 && g.lives > 0 && g.state === 'wave' && !g.paused;
+    if (danger !== this.dangerOn) { this.dangerOn = danger; this.$('danger').classList.toggle('on', danger); }
+    if (danger) {
+      this.beatT = (this.beatT || 0) - dt;
+      if (this.beatT <= 0) { this.beatT = 1.1; audio.play('heartbeat', 0.8); }
+    }
     // 连携计时
     const cb = this.$('combo-timer');
     if (cb) {

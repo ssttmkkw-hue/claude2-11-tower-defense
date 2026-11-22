@@ -217,7 +217,8 @@ class App {
   }
 
   // ---------- 标题界面 ----------
-  showTitle() {
+  showTitle(now = false) {
+    if (this.game && now !== true) { this.fadeTo(() => this.showTitle(true)); return; }
     this.clearScreens();
     this.ensureTitleScene();
     audio.startMusic('calm');
@@ -248,7 +249,7 @@ class App {
     this.ensureTitleScene();
     const d = document.createElement('div');
     d.className = 'screen panel-screen';
-    const themeIcon = { grass: '🌿', lava: '🌋', snow: '❄️' };
+    const themeIcon = { grass: '🌿', lava: '🌋', snow: '❄️', swamp: '🍄' };
     d.innerHTML = `
       <div class="panel-box wide scroll-y">
         <h2>选择战场</h2>
@@ -258,7 +259,7 @@ class App {
               <div class="map-icon">${themeIcon[m.theme]}</div>
               <h3>${m.name} ${this.save.cleared[m.id] ? '<span class="cleared">✔ 已通关</span>' : ''}</h3>
               <p>${m.desc}</p>
-              <div class="map-meta"><span>波次 ${m.waves}</span><span>难度 ${'★'.repeat(i + 1)}</span><span>路线 ${m.paths.length}</span><span>初始 💰${m.startGold}</span></div>
+              <div class="map-meta"><span>波次 ${m.waves}</span><span>难度 ${'★'.repeat(Math.round(m.difficulty * 4 - 3))}</span><span>路线 ${m.paths.length}</span><span>初始 💰${m.startGold}</span></div>
             </div>`).join('')}
         </div>
         <div class="deck-summary">当前卡组：<b>${this.save.deck.length}</b> 张 <button class="btn small" id="ms-deck">编辑卡组</button></div>
@@ -303,14 +304,19 @@ class App {
           <div>
             <h3>🃏 魔法卡牌</h3>
             <p>出征前在「卡组构筑」中组建 ${DECK_MIN}-${DECK_MAX} 张的卡组。每波开始抽 2 张，战斗中每 9 秒再抽 1 张。</p>
-            <p>法力随时间恢复（法力之泉可加速）。点击卡牌或按数字键 <b>1-7</b> 选择，再点击地面释放；右键取消。</p>
+            <p>法力随时间恢复（法力之泉可加速）。点击卡牌或按数字键 <b>1-9</b> 选择，再点击地面释放；右键取消。</p>
             <p>每波结束后可从 3 张卡中选择 1 张加入卡组（永久解锁），或改为<b>精简卡组</b>移除一张。史诗与传说卡只能这样获得！</p>
             <h3>🔗 流派与连携</h3>
             <p>卡牌分属 ${SCHOOL_ORDER.map((k) => SCHOOLS[k].icon + SCHOOLS[k].name).join('、')} 六个流派。卡组中同流派卡牌达到 3 / 6 张时激活<b>羁绊</b>加成。连续打出同流派卡牌触发<b>连携</b>，每层伤害 +15%。</p>
             <h3>🏺 遗物</h3>
             <p>开局与每次击败首领后，从 3 件遗物中选择 1 件，本局持续生效。共 ${Object.keys(RELICS).length} 种。</p>
-            <h3>⌨ 其它</h3>
+            <h3>📱 触屏操作</h3>
+            <p>单指点击：选择 / 建造 / 移动英雄 · 单指拖动：平移镜头 · 双指捏合：缩放</p>
+            <p>把<b>卡牌或技能按钮直接拖到战场</b>松手即施放；也可先点卡牌再点地面。长按按钮查看详情，顶部提示条可随时取消。</p>
+            <h3>⌨ 键盘</h3>
             <p><b>空格</b>开始下一波 · <b>Esc</b> 暂停 · 方向键平移镜头 · 滚轮缩放</p>
+            <h3>👹 敌人机制</h3>
+            <p>🧌 巨魔会再生（灼烧可抑制）· 🧨 自爆地精被阻挡或死亡时爆炸眩晕英雄 · 🔰 圣盾卫士让周围敌人减伤 30% · 首领半血狂暴；👁️ 虚空领主会向前闪烁并展开虚空屏障。</p>
           </div>
         </div>
         <div class="row-btns"><button class="btn" id="h-back">← 返回</button></div>
@@ -449,8 +455,23 @@ class App {
     render();
   }
 
+  // 屏幕淡入淡出过渡
+  fadeTo(fn) {
+    if (!this.fadeEl) { this.fadeEl = document.createElement('div'); this.fadeEl.className = 'screen-fade'; document.body.appendChild(this.fadeEl); }
+    if (this.fading) return;
+    this.fading = true;
+    audio.play('whoosh');
+    this.fadeEl.classList.add('on');
+    setTimeout(() => {
+      try { fn(); } finally {
+        requestAnimationFrame(() => { this.fadeEl.classList.remove('on'); this.fading = false; });
+      }
+    }, 280);
+  }
+
   // ---------- 开始游戏 ----------
-  startGame(mapIdx) {
+  startGame(mapIdx, now = false) {
+    if (!now) { this.fadeTo(() => this.startGame(mapIdx, true)); return; }
     this.clearScreens();
     this.disposeTitle();
     audio.init();

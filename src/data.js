@@ -45,6 +45,20 @@ export const MAPS = [
     ],
     startGold: 400,
   },
+  {
+    id: 'swamp',
+    name: '暮影沼泽',
+    desc: '腐雾弥漫的沼泽，两路敌军在中途汇流。巨魔再生、盾卫护阵，虚空领主在终焉降临。',
+    theme: 'swamp',
+    w: 22, h: 14,
+    difficulty: 1.75,
+    waves: 20,
+    paths: [
+      [[0, 1], [6, 1], [6, 6], [12, 6], [12, 10], [17, 10], [17, 4], [21, 4]],
+      [[0, 12], [9, 12], [9, 6], [12, 6], [12, 10], [17, 10], [17, 4], [21, 4]],
+    ],
+    startGold: 460,
+  },
 ];
 
 // ---------- 敌人 ----------
@@ -58,10 +72,15 @@ export const ENEMIES = {
   shaman: { icon: '🧙', name: '哥布林萨满', hp: 120, speed: 2.0, armor: 0, mres: 0.3, gold: 14, dmg: 1, size: 0.6, color: 0x55b07a, model: 'shaman', healer: true },
   splitter: { icon: '🟣', name: '分裂母体', hp: 170, speed: 1.9, armor: 0, mres: 0, gold: 8, dmg: 2, size: 0.85, color: 0xd06ad8, model: 'slime', splits: 'minislime' },
   ghost: { icon: '👻', name: '游荡幽魂', hp: 100, speed: 2.6, armor: 0.65, mres: 0, gold: 11, dmg: 1, size: 0.6, color: 0x9fe8ff, model: 'ghost', phase: true },
+  troll: { icon: '🧌', name: '沼泽巨魔', hp: 280, speed: 1.7, armor: 0.15, mres: 0.1, gold: 15, dmg: 2, size: 0.8, color: 0x5a8a4a, model: 'troll', regen: 0.05, atk: 30 },
+  bomber: { icon: '🧨', name: '自爆地精', hp: 85, speed: 3.1, armor: 0, mres: 0, gold: 7, dmg: 2, size: 0.6, color: 0x7a5a3a, model: 'bomber', bomb: true },
+  shieldbearer: { icon: '🔰', name: '圣盾卫士', hp: 230, speed: 1.75, armor: 0.35, mres: 0.2, gold: 16, dmg: 2, size: 0.72, color: 0x8a9ab8, model: 'shieldbearer', aura: true, atk: 24 },
+  voidling: { icon: '🟪', name: '虚空仆从', hp: 60, speed: 3.3, armor: 0, mres: 0.3, gold: 2, dmg: 1, size: 0.45, color: 0xb06aff, model: 'ghost' },
   skeleton: { icon: '💀', name: '骷髅兵', hp: 55, speed: 2.4, armor: 0.2, mres: 0, gold: 3, dmg: 1, size: 0.55, color: 0xe8e2cf, model: 'skeleton' },
   // 首领
   golem: { icon: '🗿', name: '岩石巨像', hp: 2600, speed: 1.0, armor: 0.4, mres: 0.1, gold: 150, dmg: 8, size: 1.6, color: 0x9b8a72, model: 'golem', boss: true, stomp: true, atk: 60 },
   lich: { icon: '☠️', name: '暗影巫妖', hp: 3200, speed: 1.2, armor: 0.1, mres: 0.4, gold: 180, dmg: 10, size: 1.4, color: 0x6c3bd0, model: 'lich', boss: true, summoner: true, atk: 40 },
+  voidlord: { icon: '👁️', name: '虚空领主', hp: 4200, speed: 1.15, armor: 0.2, mres: 0.35, gold: 230, dmg: 10, size: 1.5, color: 0x8a3aff, model: 'voidlord', boss: true, blink: true, atk: 55 },
   dragon: { icon: '🐉', name: '炽炎古龙', hp: 4800, speed: 1.3, armor: 0.3, mres: 0.3, gold: 250, dmg: 10, size: 1.8, color: 0xd8442c, model: 'dragon', boss: true, flying: true, breath: true },
 };
 
@@ -214,7 +233,12 @@ export const CARDS = {
   treant: { school: 'nature', name: '古树守卫', icon: '🌳', cost: 5, rarity: 'rare', target: 'point', radius: 1.5, color: '#8ad870', desc: '召唤古树 28 秒：阻挡 4 名敌人，攻击缠绕目标并治疗附近友军。' },
   smite: { school: 'holy', name: '圣光审判', icon: '🌞', cost: 3, rarity: 'common', target: 'point', radius: 2.2, color: '#fff0a0', desc: '圣光自天而降，造成 240 伤害；对首领与幽魂伤害翻倍。' },
   sanctuary: { school: 'holy', name: '圣域', icon: '⛪', cost: 4, rarity: 'rare', target: 'point', radius: 4, color: '#ffe8a8', desc: '神圣领域 8 秒：区域内友军每秒恢复 60 生命、伤害 +30%；敌人受到伤害 +20%。' },
+  entangle: { school: 'nature', name: '藤蔓缠绕', icon: '🪢', cost: 2, rarity: 'common', target: 'point', radius: 2.8, color: '#6adf4a', desc: '藤蔓破土而出，定身范围内地面敌人 2.5 秒并造成 80 伤害。' },
+  bounty: { name: '赏金令', icon: '📜', cost: 2, rarity: 'rare', target: 'none', color: '#ffc040', desc: '15 秒内击杀敌人获得的金币翻倍。' },
+  overclock: { school: 'arcane', name: '超载回路', icon: '⚙️', cost: 2, rarity: 'rare', target: 'tower', color: '#5cf0ff', desc: '目标防御塔攻击速度 +100%，持续 15 秒。' },
+  judgment: { school: 'holy', name: '末日审判', icon: '⚖️', cost: 6, rarity: 'epic', target: 'none', color: '#fff0a0', desc: '圣光审判全场：每个敌人受到 150 + 10% 最大生命伤害（首领 4%），并击碎护盾。' },
   // —— 传说 ——
+  supernova: { school: 'arcane', name: '超新星', icon: '💥', cost: 8, rarity: 'legendary', target: 'point', radius: 5.5, color: '#ff9aff', desc: '恒星坍缩 2 秒并吸引敌人，随后爆发造成 1100 伤害并眩晕 1.5 秒。' },
   armageddon: { school: 'fire', name: '天启', icon: '🔥', cost: 8, rarity: 'legendary', target: 'none', color: '#ff7a1a', desc: '14 颗陨石轰炸全场敌人，每颗 400 伤害并灼烧。' },
   apotheosis: { school: 'holy', name: '神威降临', icon: '👑', cost: 6, rarity: 'legendary', target: 'none', color: '#ffe066', desc: '选中英雄化身神祇 12 秒：体型变大、伤害 +100%、受伤 -60%，并立即重置技能。' },
   maelstrom: { school: 'storm', name: '万雷天牢', icon: '🌀', cost: 7, rarity: 'legendary', target: 'point', radius: 6, color: '#a0c0ff', desc: '雷霆牢笼 5 秒：困住范围内敌人，连续劈下闪电，每秒 300 伤害。' },
@@ -336,16 +360,16 @@ const WAVE_TEMPLATES = [
   /* 4 */ [['slime', 10, 0.6], ['knight', 3, 1.8, 4, 1], ['wolf', 5, 0.5, 9]],
   /* 5 */ null, // 首领
   /* 6 */ [['knight', 4, 1.5], ['shaman', 1, 1, 4], ['splitter', 4, 1.6, 8, 1], ['bat', 6, 0.6, 12]],
-  /* 7 */ [['ghost', 7, 0.8], ['bat', 9, 0.5, 4, 1], ['wolf', 10, 0.4, 9], ['knight', 3, 1.5, 12, 1]],
+  /* 7 */ [['ghost', 7, 0.8], ['bat', 9, 0.5, 4, 1], ['wolf', 10, 0.4, 9], ['bomber', 4, 0.9, 12, 1]],
   /* 8 */ [['splitter', 5, 1.3], ['wolf', 10, 0.4, 3, 1], ['shaman', 2, 3, 6], ['knight', 4, 1.4, 10, 1]],
-  /* 9 */ [['knight', 6, 1.2], ['shaman', 2, 3, 3], ['ghost', 6, 0.8, 7, 1], ['bat', 8, 0.5, 12]],
+  /* 9 */ [['knight', 5, 1.2], ['shieldbearer', 2, 3, 3], ['troll', 3, 1.6, 6, 1], ['bat', 8, 0.5, 12]],
   /* 10 */ null,
-  /* 11 */ [['bat', 12, 0.45], ['ghost', 8, 0.7, 4, 1], ['splitter', 5, 1.2, 9]],
+  /* 11 */ [['bat', 12, 0.45], ['ghost', 8, 0.7, 4, 1], ['splitter', 5, 1.2, 9], ['bomber', 6, 0.6, 12, 1]],
   /* 12 */ [['knight', 8, 1.0], ['shaman', 3, 2.5, 4], ['splitter', 6, 1.1, 6, 1], ['wolf', 10, 0.35, 12, 1]],
-  /* 13 */ [['wolf', 16, 0.3], ['ghost', 9, 0.7, 5, 1], ['knight', 6, 1.1, 9], ['bat', 10, 0.4, 14, 1]],
+  /* 13 */ [['wolf', 16, 0.3], ['ghost', 9, 0.7, 5, 1], ['troll', 5, 1.2, 9], ['shieldbearer', 2, 3, 10], ['bat', 10, 0.4, 14, 1]],
   /* 14 */ [['splitter', 6, 0.9], ['knight', 7, 0.9, 4, 1], ['shaman', 3, 2, 6], ['ghost', 8, 0.6, 10, 1], ['bat', 8, 0.4, 14]],
   /* 15 */ null,
-  /* 16 */ [['knight', 9, 0.8], ['ghost', 9, 0.55, 5, 1], ['shaman', 3, 2.2, 8], ['bat', 10, 0.35, 12, 1]],
+  /* 16 */ [['knight', 8, 0.8], ['ghost', 9, 0.55, 5, 1], ['shieldbearer', 3, 2.2, 8], ['troll', 5, 1.1, 10], ['bat', 10, 0.35, 12, 1], ['bomber', 8, 0.5, 15, 1]],
   /* 17 */ [['splitter', 7, 0.8], ['wolf', 14, 0.25, 4, 1], ['knight', 7, 0.8, 9], ['ghost', 8, 0.5, 13, 1], ['shaman', 3, 2, 10, 1]],
 ];
 
@@ -367,16 +391,18 @@ export function buildWave(map, n) {
     add('shaman', 2, 3, 8, 0);
     add('splitter', 4, 1.2, 18, 1);
     if (map.id === 'frost') add('lich', 1, 1, 22, 0);
+    if (map.id === 'swamp') { add('voidlord', 1, 1, 20, 1); add('troll', 5, 1.2, 14, 0); }
     return groups;
   }
   if (n % 5 === 0) {
     const tier = n / 5;
-    const boss = tier === 2 ? 'lich' : 'golem';
+    const boss = tier === 2 ? 'lich' : tier === 3 ? 'voidlord' : 'golem';
     add('slime', 6 + n, 0.6, 0, 0);
     add(boss, 1, 1, 4, 0);
     if (P > 1) add('wolf', 6 + tier * 2, 0.5, 2, 1);
     if (tier >= 2) add('knight', 3 + tier, 1.4, 8, 1);
     if (tier >= 3) add('ghost', 8, 0.6, 10, 0);
+    if (map.id === 'swamp' && tier >= 1) add('bomber', 4 + tier * 2, 0.6, 6, 1);
     return groups;
   }
   let tpl = WAVE_TEMPLATES[n - 1];

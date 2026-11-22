@@ -217,6 +217,65 @@ export function makeEnemy(def) {
       }
       break;
     }
+    case 'troll': {
+      body.add(mesh(G.sph(0.55, 8, 6).scale(1, 1.1, 0.9), bodyMat, 0, 1.0, 0));
+      body.add(mesh(G.sph(0.32, 8, 6), bodyMat, 0, 1.75, 0.2));
+      body.add(mesh(G.box(0.36, 0.14, 0.2), mat(0x3a5a2a), 0, 1.62, 0.42));
+      for (const sx of [-1, 1]) body.add(mesh(G.cone(0.05, 0.18, 4), mat(0xf0f0d0), sx * 0.12, 1.66, 0.5));
+      eyes(body, 1.82, 0.42, 0.12, 0.06, 0xffcc33, true);
+      for (const x of [-0.25, 0.25]) body.add(mesh(G.cyl(0.14, 0.12, 0.6, 6), bodyMat, x, 0.3, 0));
+      body.add(mesh(G.box(0.8, 0.25, 0.6), mat(0x6a4a2a), 0, 0.6, 0));
+      const club = new THREE.Group();
+      club.position.set(0.6, 1.2, 0.2);
+      club.add(mesh(G.cyl(0.07, 0.1, 0.9, 5), mat(0x5a3a1a), 0, 0, 0));
+      club.add(mesh(G.dod(0.22), mat(0x7a5a3a), 0, 0.5, 0));
+      body.add(club);
+      parts.weapon = club;
+      break;
+    }
+    case 'bomber': {
+      body.add(mesh(G.cyl(0.22, 0.3, 0.5, 7), bodyMat, 0, 0.55, 0));
+      body.add(mesh(G.sph(0.25, 8, 6), mat(0x6ab04a), 0, 1.0, 0.05));
+      for (const sx of [-1, 1]) { const ear = mesh(G.cone(0.07, 0.3, 4), mat(0x6ab04a), sx * 0.27, 1.05, 0); ear.rotation.z = -sx * 1.3; body.add(ear); }
+      eyes(body, 1.04, 0.2, 0.09, 0.05, 0xff3322, true);
+      const bomb = mesh(G.sph(0.32, 9, 7), mat(0x1a1a22, { metal: 0.4, rough: 0.3 }), 0, 0.8, -0.38);
+      body.add(bomb);
+      const fuse = mesh(G.sph(0.08, 6, 5), glowMat(0xffaa22, 5), 0, 1.15, -0.38, false);
+      body.add(fuse);
+      parts.orb = fuse;
+      for (const x of [-0.1, 0.1]) body.add(mesh(G.box(0.1, 0.32, 0.1), mat(0x3a3a2a), x, 0.16, 0));
+      break;
+    }
+    case 'shieldbearer': {
+      body.add(mesh(G.cyl(0.38, 0.45, 0.85, 8), bodyMat, 0, 0.8, 0));
+      body.add(mesh(G.sph(0.3, 8, 6), bodyMat, 0, 1.42, 0));
+      eyes(body, 1.45, 0.26, 0.1, 0.05, 0x7ad8ff, true);
+      const sh = mesh(G.cyl(0.55, 0.55, 0.1, 10), mat(0xd8c070, { metal: 0.6, rough: 0.3 }), 0, 0.9, 0.5);
+      sh.rotation.x = Math.PI / 2;
+      body.add(sh);
+      body.add(mesh(G.oct(0.16), glowMat(0x7ad8ff, 3), 0, 0.9, 0.58, false));
+      for (const x of [-0.16, 0.16]) body.add(mesh(G.box(0.16, 0.4, 0.16), mat(0x5a6070), x, 0.2, 0));
+      parts.orb = body.children[body.children.length - 3];
+      break;
+    }
+    case 'voidlord': {
+      const shell = mat(0x1a1030, { unique: true, rough: 0.3, metal: 0.4 });
+      flash[0] = shell;
+      body.add(mesh(G.oct(0.9, 0).scale(1, 1.6, 1), shell, 0, 2.0, 0));
+      body.add(mesh(G.ico(0.42, 1), glowMat(0xc04aff, 4), 0, 2.0, 0, false));
+      eyes(body, 2.6, 0.55, 0.2, 0.08, 0xff4af0, true);
+      for (const sx of [-1, 1]) {
+        const hand = mesh(G.oct(0.3), shell, sx * 1.3, 1.8, 0.2);
+        body.add(hand);
+      }
+      parts.orbiters = [];
+      for (let i = 0; i < 5; i++) {
+        const o = mesh(G.oct(0.22).scale(0.6, 1.6, 0.6), glowMat(0x8a3aff, 2.5), 0, 2, 0, false);
+        body.add(o);
+        parts.orbiters.push(o);
+      }
+      break;
+    }
     case 'dragon': {
       const scale = mat(def.color, { unique: true, rough: 0.5 });
       flash[0] = scale;
@@ -633,6 +692,29 @@ export function makeTree(theme, rng) {
     }
     return g;
   }
+  if (theme === 'swamp') {
+    // 枯藤柳 + 发光蘑菇
+    const trunk = mat(0x3a3328);
+    g.add(mesh(G.cyl(0.1, 0.24, 1.6, 6), trunk, 0, 0.8, 0));
+    const leaf = mat([0x3a5a3a, 0x4a6a3a, 0x2a4a3a][Math.floor(rng() * 3)]);
+    const crown = mesh(G.sph(0.9, 7, 5).scale(1, 0.55, 1), leaf, 0, 1.75, 0);
+    g.add(crown);
+    for (let i = 0; i < 5; i++) {
+      const a = i * 1.256 + rng();
+      const v = mesh(G.cyl(0.03, 0.05, 1.0, 4), leaf, Math.cos(a) * 0.7, 1.2, Math.sin(a) * 0.7);
+      g.add(v);
+    }
+    if (rng() < 0.6) {
+      const mc = [0x6affc0, 0xc06aff, 0x6ac0ff][Math.floor(rng() * 3)];
+      for (let i = 0; i < 3; i++) {
+        const a = rng() * 6.28, r = 0.4 + rng() * 0.4;
+        g.add(mesh(G.cyl(0.03, 0.04, 0.22, 5), mat(0xd8d0c0), Math.cos(a) * r, 0.11, Math.sin(a) * r, false));
+        g.add(mesh(new THREE.SphereGeometry(0.11, 7, 4, 0, Math.PI * 2, 0, Math.PI / 2), glowMat(mc, 1.8), Math.cos(a) * r, 0.2, Math.sin(a) * r, false));
+      }
+    }
+    g.scale.setScalar(0.85 + rng() * 0.5);
+    return g;
+  }
   const snow = theme === 'snow';
   g.add(mesh(G.cyl(0.12, 0.18, 0.7, 5), mat(0x6a4a2a), 0, 0.35, 0));
   const leaf = snow ? mat(0x2a6a5a) : mat([0x3a9a4a, 0x4aaa3a, 0x2a8a5a][Math.floor(rng() * 3)]);
@@ -648,7 +730,7 @@ export function makeTree(theme, rng) {
 }
 
 export function makeRock(theme, rng) {
-  const c = theme === 'lava' ? 0x3a3034 : theme === 'snow' ? 0x9aa8b8 : 0x8a8a80;
+  const c = theme === 'lava' ? 0x3a3034 : theme === 'snow' ? 0x9aa8b8 : theme === 'swamp' ? 0x4a5048 : 0x8a8a80;
   const g = new THREE.Group();
   const r = mesh(G.dod(0.4 + rng() * 0.4), mat(c), 0, 0.2, 0);
   r.scale.y = 0.6 + rng() * 0.5;

@@ -433,6 +433,92 @@ export function castCard(g, id, pos, tower) {
       }
       break;
     }
+    case 'entangle': {
+      audio.play('swing');
+      audio.play('stomp', 0.4);
+      fx.ring(pos, 0x6adf4a, 2.8, 0.6);
+      fx.burst(pos.clone().setY(0.3), { count: 50, color: 0x6adf4a, color2: 0x2a6a1a, intensity: 2, speed: 5, flat: true, life: 0.8, size: 0.6, radius: 1.5 });
+      for (let i = 0; i < 14; i++) {
+        const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 2.8;
+        fx.burst(V(pos.x + Math.cos(a) * r, 0.1, pos.z + Math.sin(a) * r), { count: 4, color: 0x8aff5a, intensity: 2, speed: 1, life: 0.9, size: 0.5, up: 3, drag: 1 });
+      }
+      for (const e of g.enemiesInRadius(pos, 2.8, false)) {
+        g.damageEnemy(e, 80, 'magic', src);
+        g.stunEnemy(e, 2.5);
+        g.slowEnemy(e, 0.5, 3.5);
+      }
+      break;
+    }
+    case 'bounty': {
+      audio.play('coin');
+      g.later(0.12, () => audio.play('coin'));
+      g.buffs.bounty = g.time + 15;
+      g.ui.banner('📜 赏金令', '#ffc040', '15 秒内击杀金币翻倍');
+      fx.burst(g.world.basePos.clone().setY(3), { count: 40, color: 0xffc040, intensity: 2.5, speed: 5, life: 1.2, size: 0.5, up: 4, gravity: 8 });
+      break;
+    }
+    case 'overclock': {
+      if (!tower || tower.def.support) { if (tower) g.ui.toast('法力之泉无法超载'); return false; }
+      audio.play('zap');
+      audio.play('upgrade', 0.6);
+      tower.overclockUntil = g.time + 15;
+      fx.ring(tower.pos, 0x5cf0ff, 2.5, 0.5);
+      fx.lightning(V(tower.pos.x, 14, tower.pos.z), tower.pos.clone().setY(3), 0x5cf0ff, 0.25, 0.3, false);
+      fx.burst(tower.pos.clone().setY(2.5), { count: 40, color: 0x5cf0ff, intensity: 3, speed: 5, life: 0.7, size: 0.5 });
+      g.ui.floatText(tower.pos.clone().setY(4), '攻速 +100%', '#5cf0ff', true);
+      break;
+    }
+    case 'judgment': {
+      audio.play('heal');
+      audio.play('thunder', 0.6);
+      fx.screenFlash('rgba(255,240,180,0.7)', 0.5);
+      fx.shake(0.5);
+      const list = g.enemies.filter((e) => e.alive);
+      list.forEach((e, i) => {
+        if (i < 24) fx.pillar(e.pos, 0xfff0a0, e.boss ? 1.6 : 0.6, 16, 0.7);
+        e.shieldedUntil = 0;
+        e.barrierUntil = 0;
+        g.damageEnemy(e, 150 + e.maxHp * (e.boss ? 0.04 : 0.1) / (src.mul || 1), 'magic', src);
+      });
+      g.ui.banner('⚖️ 末日审判', '#fff0a0');
+      break;
+    }
+    case 'supernova': {
+      audio.play('nova');
+      const star = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), glowMat(0xffc0ff, 6));
+      star.position.set(pos.x, 2, pos.z);
+      g.scene.add(star);
+      fx.sigil(pos, 0xff9aff, 5.5, 2.2, { spin: 6 });
+      zone(g, pos, 5.5, 2, 0xff7aff, 3, (dt, z) => {
+        const k = 1.6 - z.t * 0.7;
+        star.scale.setScalar(Math.max(0.15, k) * (1 + Math.sin(z.t * 30) * 0.08));
+        for (let i = 0; i < 5; i++) {
+          const a = Math.random() * Math.PI * 2, r = 5 + Math.random();
+          const sx = pos.x + Math.cos(a) * r, sz = pos.z + Math.sin(a) * r;
+          fx.glow.emit({ x: sx, y: 0.5 + Math.random() * 3, z: sz, vx: (pos.x - sx) * 2.2, vy: 0.6, vz: (pos.z - sz) * 2.2, life: 0.45, size: 0.6, sizeEnd: 0.1, color: fx.col(Math.random() < 0.5 ? 0xff9aff : 0xffe0a0, 3), drag: 0 });
+        }
+        for (const e of g.enemiesInRadius(pos, 5.5, true)) {
+          e.zoneSlow = 0.15;
+          const ahead = e.path.at(e.dist + 0.5);
+          if (ahead.distanceToSquared(pos) < e.pos.distanceToSquared(pos)) e.dist += dt * 2; else e.dist = Math.max(0, e.dist - dt * 2);
+          e.lateral *= 1 - dt * 2;
+        }
+      }, { onEnd: () => {
+        g.scene.remove(star); star.geometry.dispose();
+        const c = pos.clone().setY(1.5);
+        fx.explosion(c, 0xff9aff, 2.6);
+        fx.explosion(c, 0xffffff, 1.4, { noDecal: true });
+        fx.ring(pos, 0xffffff, 7, 0.6);
+        fx.ring(pos, 0xff9aff, 9, 1.0);
+        fx.pillar(pos, 0xffc0ff, 3, 30, 1.0);
+        fx.light(pos, 0xff9aff, 12, 20, 0.8);
+        fx.shake(1.2);
+        fx.screenFlash('rgba(255,200,255,0.85)', 0.5);
+        audio.play('bigexplode');
+        for (const e of g.enemiesInRadius(pos, 5.5, true)) { g.damageEnemy(e, 1100, 'magic', src); g.stunEnemy(e, 1.5); }
+      } });
+      break;
+    }
     case 'inferno': {
       audio.play('fire');
       fx.light(pos, 0xff4a1a, 8, 12, 1.2);

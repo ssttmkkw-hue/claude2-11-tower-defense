@@ -13,6 +13,10 @@ export const THEMES = {
     sky: [0x2a0a10, 0x8a3a1a], fog: 0x4a1a14, ground: 0x5a4646, ground2: 0x4e3e40, path: 0x7a5a44, pathEdge: 0x3a2a22,
     hill: 0x2a2024, hillTop: 0x4a3434, liquid: 'lava', sun: 0xffb080, sunI: 2.4, hemi: [0xff9a6a, 0x2a1010], amb: 'ember', crystal: 0xff5a2a,
   },
+  swamp: {
+    sky: [0x2a3a3a, 0x8aa08a], fog: 0x5a6a5a, ground: 0x4a5a3a, ground2: 0x42523a, path: 0x6a5a40, pathEdge: 0x3a3226,
+    hill: 0x34402e, hillTop: 0x4e5e3a, liquid: 'bog', sun: 0xe8f0c8, sunI: 1.9, hemi: [0xb0c8a0, 0x2a3424], amb: 'spore', crystal: 0x6affc0,
+  },
   snow: {
     sky: [0x8ab0d8, 0xe8f0ff], fog: 0xd0e0f0, ground: 0xc4d2e2, ground2: 0xb6c6d8, path: 0x8aa0ba, pathEdge: 0x6a8098,
     hill: 0xa8b8cc, hillTop: 0xdce8f4, liquid: 'ice', sun: 0xf0f4ff, sunI: 1.9, hemi: [0xd8e8ff, 0x6a7a9a], amb: 'snow', crystal: 0x9ae0ff,
@@ -73,6 +77,7 @@ export class World {
       for (let x = 0; x < this.W; x++) this.cells[z].push({ path: false, tower: null, deco: false });
     }
     // ---- 路径 ----
+    this.portalColor = { lava: 0xff4a2a, swamp: 0x4aff9a }[map.theme] || 0xa04aff;
     this.paths = [];
     for (const wp of map.paths) {
       const pts = [];
@@ -112,7 +117,7 @@ export class World {
     // 传送门
     this.portals = [];
     for (const p of this.paths) {
-      const portal = makePortal(map.theme === 'lava' ? 0xff4a2a : 0xa04aff);
+      const portal = makePortal(this.portalColor);
       const a = p.points[0], b = p.points[1];
       portal.position.copy(a).lerp(b, 0.25);
       portal.lookAt(b.x, 0, b.z);
@@ -299,6 +304,7 @@ export class World {
       water: [0x1a6aa8, 0x6ad0ff],
       lava: [0xff3a0a, 0xffc040],
       ice: [0x8ab8d8, 0xe0f4ff],
+      bog: [0x1a3a2a, 0x5a9a6a],
     }[kind];
     const m = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 }, c1: { value: new THREE.Color(colors[0]) }, c2: { value: new THREE.Color(colors[1]) }, uKind: { value: kind === 'lava' ? 1 : kind === 'ice' ? 2 : 0 }, fogColor: { value: new THREE.Color(this.theme.fog) } },

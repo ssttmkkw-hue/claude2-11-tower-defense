@@ -516,3 +516,8 @@ button { touch-action: manipulation; }
 .compact .pile-info { top: -2px; right: 4px; }
 .compact .mana-wrap { width: min(70vw, 360px); }
 .compact.landscape .pile-info { top: -4px; right: 0; }
+.map-card.theme-swamp { background: linear-gradient(160deg, #3a5a3a, #1a2420); }
+.map-list { grid-template-columns: repeat(2, 1fr); }
+.wave-preview { cursor: help; }
+.banner .bs { letter-spacing: 1px; }
+.compact.landscape .banner { top: 34%; }

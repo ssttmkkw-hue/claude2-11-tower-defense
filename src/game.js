@@ -38,7 +38,7 @@ export class Game {
     this.state = 'build'; // build | wave | reward | over
     this.speed = 1;
     this.paused = false;
-    this.buffs = { towerHaste: 0, heroDmg: 0 };
+    this.buffs = { towerHaste: 0, heroDmg: 0, bounty: 0 };
     this.timeStopUntil = 0;
     this.waveScale = 1;
     this.spawnQueue = [];
@@ -220,6 +220,9 @@ export class Game {
     }
     if (frozen && this.tiers.frost >= 2) a *= 1.25;
     if (e.sanctified > this.time) a *= 1.2;
+    if (e.shieldedUntil > this.time) a *= 0.7;
+    if (e.barrierUntil > this.time) a *= 0.1;
+    e.lastHit = this.time;
     if (src && src.critNext) { a *= 2.5; crit = true; src.critNext = false; }
     e.hp -= a;
     if (!silent) {
@@ -236,7 +239,10 @@ export class Game {
     const c = e.centerClone();
     e.destroy();
     this.stats.kills++;
-    const gold = Math.round(e.def.gold * (1 + 0.04 * (this.wave - 1)) * (this.has('greedring') ? 1.25 : 1));
+    const bounty = this.time < this.buffs.bounty;
+    const gold = Math.round(e.def.gold * (1 + 0.04 * (this.wave - 1)) * (this.has('greedring') ? 1.25 : 1) * (bounty ? 2 : 1));
+    if (bounty && !e.boss) this.fx.trail(c, 0xffc040, 1.2, 0.6, 0, 3);
+    if (e.def.bomb) e.explode();
     this.addGold(gold, true);
     if (this.has('soulreaper') && ++this.soulKills >= 15) {
       this.soulKills = 0;
@@ -310,6 +316,8 @@ export class Game {
     const b = this.world.basePos;
     this.fx.burst(b.clone().setY(2.5), { count: 30, color: 0xff3a3a, intensity: 2.5, speed: 5, life: 0.6, size: 0.7 });
     this.ui.floatText(b.clone().setY(4), `-${dmg} ❤`, '#ff5a5a', true);
+    this.waveLeaks = (this.waveLeaks || 0) + dmg;
+    haptic(dmg > 3 ? 80 : 30);
     if (this.lives <= 0) { this.lives = 0; this.gameOver(false); }
   }
 
@@ -553,6 +561,8 @@ export class Game {
     this.waveTime = 0;
     this.drawTimer = 0;
     this.drawCards(2);
+    this.waveLeaks = 0;
+    haptic(hasBoss ? [40, 60, 40] : 20);
     audio.play(hasBoss ? 'boss' : 'wave');
     audio.startMusic('battle');
     if (hasBoss) this.ui.banner(`第 ${this.wave} 波 · 首领来袭！`, '#ff5a5a', '强大的敌人正在接近……');
@@ -563,6 +573,16 @@ export class Game {
   endWave() {
     const bonus = 30 + this.wave * 4 + (this.has('alchemy') ? 30 : 0);
     this.addGold(bonus);
+    // 完美防守：本波无漏怪
+    if (!this.waveLeaks) {
+      const pb = 10 + this.wave * 2;
+      this.addGold(pb);
+      this.stats.perfect = (this.stats.perfect || 0) + 1;
+      this.later(0.3, () => { audio.play('perfect'); this.ui.banner('完美防守！', '#7affaa', `无一漏网 · 额外 +${pb} 金币`); });
+      const bp = this.world.basePos;
+      this.fx.burst(bp.clone().setY(3), { count: 50, color: 0x7affaa, color2: 0xffffff, intensity: 2.5, speed: 6, life: 1.2, size: 0.6, up: 4, gravity: 6 });
+    } else this.ui.banner(`第 ${this.wave} 波完成`, '#ffffff', `+${bonus} 金币`);
+    this.waveLeaks = 0;
     if (this.has('alchemy')) this.mana = Math.min(this.maxMana, this.mana + 2);
     audio.play('coin');
     audio.startMusic('calm');
@@ -668,6 +688,23 @@ export class Game {
   }
 
   onPointerMove(e) { this.updateMouse(e.clientX, e.clientY); }
+
+  // 首领登场：镜头短暂对准 + 机制提示
+  bossIntro(e) {
+    const lore = {
+      golem: '践踏：眩晕附近英雄 · 半血狂暴',
+      lich: '每 8 秒召唤骷髅兵 · 半血狂暴',
+      dragon: '飞行 · 对英雄喷吐烈焰 · 半血狂暴',
+      voidlord: '相位跃迁向前闪烁 · 66%/33% 生命展开虚空屏障并召唤仆从',
+    }[e.type] || '';
+    const prev = this.camTarget.clone();
+    if (!this.gest) {
+      this.focusCamOn(e.pos);
+      this.later(1.6, () => { if (!this.gest) this.camTarget.copy(prev); });
+    }
+    this.later(0.2, () => this.ui.banner(`${e.def.icon} ${e.def.name}`, '#ff6a5a', lore));
+    audio.play('roar', 0.7);
+  }
 
   // ---------- 布局 / 镜头适配 ----------
   onResize() {
@@ -976,8 +1013,8 @@ export class Game {
         const e = new Enemy(this, s.type, s.path, this.waveScale);
         this.enemies.push(e);
         const portal = this.world.portals[s.path];
-        this.fx.burst(portal.position.clone().setY(1.3), { count: 15, color: this.map.theme === 'lava' ? 0xff4a2a : 0xa04aff, intensity: 2.5, speed: 3, life: 0.5, size: 0.6 });
-        if (e.boss) { this.fx.shake(0.8); this.ui.bossBar(e); }
+        this.fx.burst(portal.position.clone().setY(1.3), { count: 15, color: this.world.portalColor, intensity: 2.5, speed: 3, life: 0.5, size: 0.6 });
+        if (e.boss) { this.fx.shake(0.8); this.ui.bossBar(e); this.bossIntro(e); }
       }
       this.drawTimer += dt;
       if (this.drawTimer >= (this.has('prophecy') ? 7 : 9)) { this.drawTimer = 0; this.drawCards(1); }
@@ -1026,6 +1063,7 @@ export class Game {
     for (let i = 0; i < n; i++) {
       const x = rand(-28, 28), z = rand(-20, 20);
       if (kind === 'firefly') fx.glow.emit({ x, y: rand(0.3, 2.5), z, vx: rand(-0.4, 0.4), vy: rand(-0.1, 0.3), vz: rand(-0.4, 0.4), life: 4, size: 0.35, sizeEnd: 0.2, color: fx.col(0xd8ff7a, 2), drag: 0 });
+      else if (kind === 'spore') fx.glow.emit({ x, y: rand(0, 1), z, vx: rand(-0.2, 0.2), vy: rand(0.3, 0.8), vz: rand(-0.2, 0.2), life: 5, size: 0.3, sizeEnd: 0.1, color: fx.col(Math.random() < 0.5 ? 0x6affc0 : 0xc08aff, 1.8), drag: 0 });
       else if (kind === 'ember') fx.glow.emit({ x, y: 0, z, vx: rand(-0.3, 0.3), vy: rand(1, 2.5), vz: rand(-0.3, 0.3), life: 3, size: 0.3, sizeEnd: 0.05, color: fx.col(0xff7a2a, 3), color2: fx.col(0xff2a00, 1), drag: 0 });
       else {
         for (let k = 0; k < 3; k++) fx.glow.emit({ x: rand(-28, 28), y: rand(8, 14), z: rand(-22, 18), vx: rand(0.3, 1), vy: -1.6, vz: rand(-0.2, 0.2), life: 7, size: 0.3, sizeEnd: 0.3, color: fx.col(0xffffff, 0.9), drag: 0 });
