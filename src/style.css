@@ -178,7 +178,7 @@ button { touch-action: manipulation; }
 .mana-ticks { position: absolute; inset: 0; display: flex; }
 .mana-ticks i { flex: 1; border-right: 1px solid rgba(0,0,0,.5); }
 .hand { display: flex; justify-content: center; height: 196px; align-items: flex-end; }
-.hand-slot { position: relative; margin: 0 -10px; transform: translateY(calc(var(--ty) + 4px)) rotate(var(--rot)); transform-origin: 50% 120%; transition: transform .18s; }
+.hand-slot { position: relative; margin: 0 var(--hm, -10px); transform: translateY(calc(var(--ty) + 4px)) rotate(var(--rot)); transform-origin: 50% 120%; transition: transform .18s; }
 .hand-slot:hover, .hand-slot.pending { transform: translateY(-26px) rotate(0deg) scale(1.12); z-index: 5; }
 .hand-slot.pending .card { border-color: #fff; box-shadow: 0 0 24px var(--cc), 0 0 6px #fff; }
 .hand-slot.drawn { animation: drawIn .45s ease-out; }
@@ -394,7 +394,7 @@ button { touch-action: manipulation; }
 .compact .hand .card-desc, .compact .hand .card-rarity { display: none; }
 .compact .hand .card-cost { width: 22px; height: 22px; font-size: 13px; top: -6px; left: -6px; }
 .compact .hand .card-school { width: 18px; height: 18px; font-size: 9px; top: -6px; right: -6px; }
-.compact .hand-slot { margin: 0 -2px; }
+.compact .hand-slot { margin: 0 var(--hm, -2px); }
 .compact .hand-slot.pending { transform: translateY(-14px) scale(1.12); }
 .compact .pile-info { position: absolute; left: auto; right: 6px; top: -26px; padding: 3px 7px; font-size: 11px; gap: 6px; }
 .compact .combo-timer { position: absolute; top: -26px; left: 6px; }
@@ -527,3 +527,34 @@ button { touch-action: manipulation; }
   .compact .topbar { gap: 4px; }
   .compact .topbar .btn.small { min-width: 34px; padding: 0 6px; font-size: 13px; }
 }
+
+/* —— 手机适配修正（第 6 轮）—— */
+.compact .mana-wrap { width: min(100%, 380px); }
+.compact .pile-info, .compact.landscape .pile-info { position: static; flex: none; padding: 2px 6px; font-size: 11px; gap: 5px; }
+.compact .reward-cards .card { height: auto; min-height: 168px; padding-bottom: 20px; }
+.compact .collection .card { height: auto; min-height: 148px; padding-bottom: 16px; }
+@media (max-height: 740px) {
+  .compact.portrait .build-panel { gap: 3px; padding: 3px; }
+  .compact.portrait .build-btn { width: 46px; height: 44px; }
+  .compact.portrait .build-btn .bi { font-size: 19px; }
+}
+@media (max-height: 360px) {
+  .compact.landscape .build-btn { width: 42px; height: 40px; }
+  .compact.landscape .build-btn .bi { font-size: 18px; }
+}
+@media (max-width: 400px) {
+  .compact.portrait .hero-panel { gap: 4px; padding: 4px; }
+  .compact.portrait .hero-list { gap: 3px; }
+  .compact.portrait .hero-btn { width: 37px; }
+  .compact.portrait .hp-face { width: 30px; height: 30px; font-size: 16px; }
+  .compact.portrait .skill-bar { gap: 3px; }
+  .compact.portrait .skill-btn { width: 42px; height: 46px; }
+  .compact.portrait .skill-btn .si { font-size: 20px; }
+  .compact.portrait .hold-btn { width: 30px; height: 46px; }
+}
+.compact .mana-wrap { width: min(calc(100% - 12px), 380px); }
+.map-card.theme-desert { background: linear-gradient(160deg, #a8783a, #3a2a18); }
+.stat.bump-up { animation: bumpUp .45s ease-out; }
+.stat.bump-down { animation: bumpDown .45s ease-out; }
+@keyframes bumpUp { 30% { transform: scale(1.14); box-shadow: 0 0 14px rgba(120,255,150,.7); } }
+@keyframes bumpDown { 20% { transform: translateX(-3px) scale(1.08); box-shadow: 0 0 14px rgba(255,80,80,.8); } 45% { transform: translateX(3px); } 70% { transform: translateX(-2px); } }

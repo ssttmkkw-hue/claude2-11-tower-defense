@@ -4,6 +4,7 @@ import { TOWERS, TOWER_ORDER, HEROES, HERO_ORDER, CARDS, RARITY, MAX_HEROES, SCH
 import { audio } from './audio.js';
 import { skillRange } from './spells.js';
 import { IS_TOUCH, QUALITY, haptic } from './device.js';
+const Q_NAMES = { auto: '自动', high: '高', low: '省电' };
 
 export function cardHTML(id, extra = '') {
   const c = CARDS[id];
@@ -136,10 +137,10 @@ export class GameUI {
         <div class="mana-wrap">
           <div class="mana-orb"><span id="mana-num">0</span></div>
           <div class="mana-track"><div class="mana-fill" id="mana-fill"></div><div class="mana-ticks" id="mana-ticks">${'<i></i>'.repeat(10)}</div></div>
+          <div class="pile-info"><span title="抽牌堆">🂠 <b id="pile-draw"></b></span><span title="弃牌堆">🗑 <b id="pile-disc"></b></span></div>
         </div>
         <div class="combo-timer hidden" id="combo-timer"></div>
         <div class="hand" id="hand"></div>
-        <div class="pile-info"><span title="抽牌堆">🂠 <b id="pile-draw"></b></span><span title="弃牌堆">🗑 <b id="pile-disc"></b></span></div>
       </div>
       <div class="wave-preview" id="wave-preview"></div>
       <button class="btn primary wave-btn" id="bt-wave">⚔ 开始第 1 波 <small class="kbd">(空格)</small></button>
@@ -258,6 +259,21 @@ export class GameUI {
     this.$('pile-draw').textContent = g.drawPile.length;
     this.$('pile-disc').textContent = g.discard.length;
     this.lastManaInt = -1;
+    this.fitHand();
+  }
+
+  // 根据可用宽度动态调整手牌重叠，保证任意手牌数都不溢出屏幕
+  fitHand() {
+    const hand = this.$('hand');
+    const n = hand.children.length;
+    if (!n) return;
+    const compact = document.body.classList.contains('compact');
+    const avail = hand.parentElement.clientWidth - (compact ? 44 : 50); // 预留扇形旋转的外扩
+    const cw = hand.children[0].firstElementChild.offsetWidth;
+    const base = compact ? -2 : -10;
+    let m = base;
+    if (n * (cw + 2 * base) > avail) m = Math.max(-cw * 0.36, (avail / n - cw) / 2);
+    hand.style.setProperty('--hm', `${m.toFixed(1)}px`);
   }
 
   cardCastFx(card) {
@@ -446,7 +462,19 @@ export class GameUI {
   refresh(force = false) {
     const g = this.game;
     const set = (id, v) => { const e = this.$(id); if (e.textContent !== String(v)) e.textContent = v; };
-    set('st-lives', g.lives);
+    // 数值变化时的弹跳反馈
+    const bump = (id, v, key) => {
+      const prev = this[key];
+      this[key] = v;
+      if (prev === undefined || prev === v) return;
+      const chip = this.$(id).parentElement;
+      chip.classList.remove('bump-up', 'bump-down');
+      void chip.offsetWidth;
+      chip.classList.add(v > prev ? 'bump-up' : 'bump-down');
+    };
+    bump('st-lives', g.lives, '_lv');
+    bump('st-gold', g.gold, '_gd');
+    set('st-lives', g.aegis > 0 ? `${g.lives} 🔆${g.aegis}` : g.lives);
     set('st-gold', g.gold);
     set('st-wave', `${g.wave} / ${g.map.waves}`);
     const wb = this.$('bt-wave');
@@ -578,13 +606,13 @@ export class GameUI {
     this.floats.push({ el: e, pos: pos.clone(), t: 0, big });
   }
 
-  toast(msg) {
+  toast(msg, dur = 2200) {
     const box = this.$('toasts');
     const t = el('div', 'toast', msg);
     box.appendChild(t);
     while (box.children.length > 4) box.firstChild.remove();
-    setTimeout(() => t.classList.add('out'), 2200);
-    setTimeout(() => t.remove(), 2700);
+    setTimeout(() => t.classList.add('out'), dur);
+    setTimeout(() => t.remove(), dur + 500);
   }
 
   banner(text, color = '#fff', sub = '') {
@@ -696,10 +724,18 @@ export class GameUI {
         <h1>⏸ 已暂停</h1>
         <div class="end-btns col">
           <button class="btn primary" id="pa-resume">继续游戏</button>
+          <button class="btn" id="pa-quality">画质：${Q_NAMES[QUALITY.level] || '自动'}</button>
           <button class="btn" id="pa-restart">重新开始</button>
           <button class="btn" id="pa-menu">返回主菜单</button>
         </div></div>`;
       o.querySelector('#pa-resume').addEventListener('click', () => this.togglePause());
+      o.querySelector('#pa-quality').addEventListener('click', (e) => {
+        const order = ['auto', 'high', 'low'];
+        const next = order[(order.indexOf(QUALITY.level) + 1) % order.length];
+        g.app.applyQuality(next);
+        e.currentTarget.textContent = `画质：${Q_NAMES[next]}`;
+        audio.play('click');
+      });
       o.querySelector('#pa-restart').addEventListener('click', () => g.app.startGame(g.mapIdx));
       o.querySelector('#pa-menu').addEventListener('click', () => g.app.showTitle());
     } else {

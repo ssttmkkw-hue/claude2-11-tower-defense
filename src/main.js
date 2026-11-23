@@ -12,7 +12,7 @@ import { Game } from './game.js';
 import { audio } from './audio.js';
 import { cardHTML } from './ui.js';
 import { makeHero } from './models.js';
-import { IS_TOUCH, IS_MOBILE, QUALITY, applyLayoutClasses, haptic } from './device.js';
+import { IS_TOUCH, IS_MOBILE, QUALITY, applyLayoutClasses, haptic, setQualityLevel } from './device.js';
 
 const SAVE_KEY = 'arcane-bastion-save-v1';
 
@@ -41,6 +41,7 @@ class App {
     this.ui = document.getElementById('ui');
     this.CARDS = CARDS;
     this.load();
+    this.applyQuality();
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.bindInput();
@@ -90,7 +91,19 @@ class App {
     this.camera.updateProjectionMatrix();
     const fx = this.game ? this.game.fx : this.title && this.title.fx;
     if (fx) fx.setScale(h, this.camera.fov);
-    if (this.game) this.game.onResize();
+    if (this.game) { this.game.onResize(); if (this.game.ui) this.game.ui.fitHand(); }
+  }
+
+  // 应用画质档位（阴影 / 辉光 / 像素比）
+  applyQuality(level) {
+    if (level) setQualityLevel(level);
+    this.renderer.shadowMap.enabled = QUALITY.shadows;
+    this.bloom.enabled = QUALITY.bloom;
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio);
+    this.perf.slow = 0;
+    const scene = this.game ? this.game.scene : this.title && this.title.scene;
+    if (scene) scene.traverse((o) => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach((m) => { m.needsUpdate = true; }); } });
+    if (level) this.resize();
   }
 
   // 自适应分辨率：持续掉帧时降低像素比
@@ -249,7 +262,7 @@ class App {
     this.ensureTitleScene();
     const d = document.createElement('div');
     d.className = 'screen panel-screen';
-    const themeIcon = { grass: '🌿', lava: '🌋', snow: '❄️', swamp: '🍄' };
+    const themeIcon = { grass: '🌿', lava: '🌋', snow: '❄️', swamp: '🍄', desert: '🏜️' };
     d.innerHTML = `
       <div class="panel-box wide scroll-y">
         <h2>选择战场</h2>
@@ -316,6 +329,7 @@ class App {
             <h3>⌨ 键盘</h3>
             <p><b>空格</b>开始下一波 · <b>Esc</b> 暂停 · 方向键平移镜头 · 滚轮缩放</p>
             <h3>👹 敌人机制</h3>
+            <p>🪲 圣甲虫会钻地潜行（流沙陷阱可拖出）· 🧿 诅咒祭司令防御塔停火 · 🧟 木乃伊会复生一次（灼烧中击杀则不会）· 👑 沙暴法老：沙暴使附近塔停火，被击败后复生一次。</p>
             <p>🧌 巨魔会再生（灼烧可抑制）· 🧨 自爆地精被阻挡或死亡时爆炸眩晕英雄 · 🔰 圣盾卫士让周围敌人减伤 30% · 首领半血狂暴；👁️ 虚空领主会向前闪烁并展开虚空屏障。</p>
           </div>
         </div>

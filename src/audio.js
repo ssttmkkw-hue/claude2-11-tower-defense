@@ -250,6 +250,22 @@ class AudioEngine {
         [784, 988, 1175, 1568].forEach((f, i) => this.tone({ type: 'triangle', f0: f, t: 0.35, vol: 0.09 * v, delay: i * 0.09, rev: true }));
         this.tone({ type: 'sine', f0: 2093, t: 0.8, vol: 0.05 * v, delay: 0.36, rev: true });
         break;
+      case 'burrow':
+        this.noise({ t: 0.35, vol: 0.12 * v, filter: 'lowpass', f0: 900, f1: 150 });
+        this.tone({ type: 'sine', f0: 160, f1: 60, t: 0.3, vol: 0.08 * v });
+        break;
+      case 'curse':
+        this.tone({ type: 'sawtooth', f0: 520, f1: 260, t: 0.5, vol: 0.07 * v, rev: true, detune: 30 });
+        this.tone({ type: 'square', f0: 523, f1: 247, t: 0.5, vol: 0.04 * v, delay: 0.05, rev: true });
+        break;
+      case 'revive':
+        this.tone({ type: 'sine', f0: 90, f1: 300, t: 1.2, vol: 0.14 * v, attack: 0.6, rev: true });
+        this.noise({ t: 1.0, vol: 0.1 * v, filter: 'bandpass', f0: 400, f1: 1600, q: 2, attack: 0.5, rev: true });
+        break;
+      case 'sandstorm':
+        this.noise({ t: 1.6, vol: 0.22 * v, filter: 'bandpass', f0: 600, f1: 2400, q: 0.7, attack: 0.3, rev: true });
+        this.noise({ t: 1.2, vol: 0.14 * v, filter: 'lowpass', f0: 300, f1: 120, attack: 0.1 });
+        break;
       case 'nova':
         this.tone({ type: 'sine', f0: 60, f1: 600, t: 2.0, vol: 0.18 * v, attack: 1.6, rev: true });
         this.noise({ t: 2.0, vol: 0.2 * v, filter: 'bandpass', f0: 200, f1: 4000, q: 1, attack: 1.8, rev: true });
@@ -261,14 +277,18 @@ class AudioEngine {
   // ---- 背景音乐：简单的生成式和弦琶音 ----
   startMusic(mood = 'calm') {
     if (!this.ctx) return;
+    if (this.mood === mood && this.musicTimer) return;
     this.stopMusic();
     if (!this.musicOn) return;
     const progressions = {
       calm: [[220, 261.6, 329.6], [174.6, 220, 261.6], [196, 246.9, 293.7], [164.8, 207.7, 246.9]],
       battle: [[146.8, 174.6, 220], [116.5, 146.8, 174.6], [130.8, 164.8, 196], [110, 138.6, 164.8]],
+      boss: [[110, 130.8, 164.8], [103.8, 130.8, 155.6], [98, 116.5, 146.8], [103.8, 123.5, 155.6]],
     };
     const prog = progressions[mood] || progressions.calm;
-    const stepT = mood === 'battle' ? 0.22 : 0.32;
+    const intense = mood === 'battle' || mood === 'boss';
+    const stepT = mood === 'boss' ? 0.17 : mood === 'battle' ? 0.22 : 0.32;
+    this.mood = mood;
     this.musicStep = 0;
     const tick = () => {
       if (!this.ctx || this.muted) return;
@@ -296,7 +316,8 @@ class AudioEngine {
         note(chord[0] / 2, stepT * 16, 0.35, 'sine');
         note(chord[1], stepT * 16, 0.12, 'sine');
       }
-      if (mood === 'battle' && (i % 4 === 0)) {
+      if (mood === 'boss' && i % 8 === 4) note(chord[2] * 4, stepT * 1.5, 0.12, 'sawtooth');
+      if (intense && (i % 4 === 0 || (mood === 'boss' && i % 8 === 6))) {
         const s = c.createBufferSource();
         s.buffer = this.noiseBuf;
         const f = c.createBiquadFilter();
@@ -316,6 +337,7 @@ class AudioEngine {
   stopMusic() {
     if (this.musicTimer) clearInterval(this.musicTimer);
     this.musicTimer = null;
+    this.mood = null;
   }
 }
 

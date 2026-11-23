@@ -317,6 +317,95 @@ export function makeEnemy(def) {
       }
       break;
     }
+    case 'scarab': {
+      // 圣甲虫：圆甲 + 金色纹路 + 六足
+      const shell = mat(def.color, { unique: true, rough: 0.25, metal: 0.6 });
+      flash[0] = shell;
+      body.add(mesh(G.sph(0.55, 10, 7).scale(1, 0.55, 1.25), shell, 0, 0.42, 0));
+      body.add(mesh(G.box(0.04, 0.06, 1.2), glowMat(0xffd257, 1.2), 0, 0.72, 0, false));
+      body.add(mesh(G.sph(0.26, 8, 6).scale(1.2, 0.8, 1), mat(0x1a2a2a), 0, 0.38, 0.62));
+      for (const sx of [-1, 1]) { const h = mesh(G.cone(0.05, 0.4, 4), mat(0x1a2a2a), sx * 0.12, 0.5, 0.85); h.rotation.x = 1.2; h.rotation.z = -sx * 0.4; body.add(h); }
+      eyes(body, 0.45, 0.82, 0.1, 0.045, 0x7affe0, true);
+      parts.legs = [];
+      for (let i = 0; i < 6; i++) {
+        const sx = i % 2 ? 1 : -1, z = (Math.floor(i / 2) - 1) * 0.35;
+        const l = mesh(G.box(0.5, 0.06, 0.06), mat(0x1a2a2a), sx * 0.5, 0.22, z);
+        l.rotation.z = sx * 0.5;
+        body.add(l);
+        parts.legs.push(l);
+      }
+      break;
+    }
+    case 'hexer': {
+      // 诅咒祭司：长袍 + 悬浮邪眼
+      body.add(mesh(G.cone(0.5, 1.3, 8), bodyMat, 0, 0.65, 0));
+      body.add(mesh(G.sph(0.26, 8, 6), mat(0x5a3a5a), 0, 1.45, 0));
+      body.add(mesh(G.cone(0.32, 0.55, 8), bodyMat, 0, 1.68, -0.04));
+      eyes(body, 1.46, 0.22, 0.09, 0.045, 0xff5ae0, true);
+      const staff = new THREE.Group();
+      staff.position.set(0.45, 0.9, 0.15);
+      staff.add(mesh(G.cyl(0.035, 0.04, 1.6, 5), mat(0x3a2a2a), 0, 0, 0));
+      const orb = mesh(G.sph(0.17, 10, 8), glowMat(0xff4ad8, 3.5), 0, 0.9, 0, false);
+      orb.add(mesh(G.sph(0.07, 6, 5), mat(0x111111), 0, 0, 0.12, false));
+      staff.add(orb);
+      body.add(staff);
+      parts.orb = orb;
+      parts.weapon = staff;
+      break;
+    }
+    case 'mummy': {
+      // 木乃伊：绷带层叠
+      const wrap = bodyMat;
+      body.add(mesh(G.cyl(0.32, 0.36, 0.85, 7), wrap, 0, 0.82, 0));
+      for (let i = 0; i < 4; i++) { const b = mesh(G.cyl(0.37, 0.37, 0.07, 7), mat(0xb8a880), 0, 0.5 + i * 0.2, 0); b.rotation.z = (i % 2 ? 1 : -1) * 0.15; body.add(b); }
+      body.add(mesh(G.sph(0.28, 8, 6), wrap, 0, 1.45, 0));
+      body.add(mesh(G.box(0.5, 0.06, 0.3), mat(0xb8a880), 0, 1.5, 0.05));
+      eyes(body, 1.47, 0.25, 0.1, 0.05, 0x7affa0, true);
+      parts.arms = [];
+      for (const sx of [-1, 1]) {
+        const arm = new THREE.Group();
+        arm.position.set(sx * 0.4, 1.12, 0);
+        const a = mesh(G.cyl(0.09, 0.08, 0.7, 5), wrap, 0, 0, 0.32);
+        a.rotation.x = Math.PI / 2;
+        arm.add(a);
+        body.add(arm);
+        parts.arms.push(arm);
+      }
+      for (const x of [-0.15, 0.15]) body.add(mesh(G.box(0.18, 0.45, 0.18), wrap, x, 0.22, 0));
+      break;
+    }
+    case 'pharaoh': {
+      // 沙暴法老：金色头冠、权杖、漂浮的护符
+      const gold = mat(0xe0b040, { unique: true, metal: 0.7, rough: 0.3 });
+      flash[0] = gold;
+      const cloth = mat(0xe8e0c8);
+      const blue = mat(0x2a5ab0, { metal: 0.3, rough: 0.4 });
+      body.add(mesh(G.cyl(0.55, 0.75, 1.2, 8), cloth, 0, 0.6, 0));
+      body.add(mesh(G.cyl(0.6, 0.55, 0.8, 8), gold, 0, 1.55, 0));
+      body.add(mesh(G.box(1.25, 0.18, 0.7), gold, 0, 1.95, 0));
+      body.add(mesh(G.sph(0.38, 8, 6), mat(0x8a5a3a), 0, 2.35, 0));
+      // 头巾 (nemes)
+      const nem = mesh(G.cone(0.62, 0.9, 4), blue, 0, 2.45, -0.08);
+      nem.rotation.y = Math.PI / 4;
+      body.add(nem);
+      for (let i = 0; i < 4; i++) body.add(mesh(G.box(0.08, 0.06, 0.02), gold, 0, 2.3 + i * 0.12, 0.44));
+      eyes(body, 2.38, 0.32, 0.13, 0.06, 0x40e0ff, true);
+      body.add(mesh(G.cone(0.08, 0.3, 5), gold, 0, 2.95, 0.15));
+      const staff = new THREE.Group();
+      staff.position.set(0.85, 1.4, 0.3);
+      staff.add(mesh(G.cyl(0.05, 0.05, 2.2, 6), gold, 0, 0, 0));
+      staff.add(mesh(G.tor(0.18, 0.05, 6, 10), gold, 0, 1.25, 0));
+      staff.add(mesh(G.oct(0.14), glowMat(0x40e0ff, 3), 0, 1.25, 0, false));
+      body.add(staff);
+      parts.weapon = staff;
+      parts.orbiters = [];
+      for (let i = 0; i < 4; i++) {
+        const o = mesh(G.box(0.22, 0.32, 0.06), glowMat(0xffc040, 2.2), 0, 2, 0, false);
+        body.add(o);
+        parts.orbiters.push(o);
+      }
+      break;
+    }
     default:
       body.add(mesh(G.box(0.8, 0.8, 0.8), bodyMat, 0, 0.4, 0));
   }
@@ -715,6 +804,45 @@ export function makeTree(theme, rng) {
     g.scale.setScalar(0.85 + rng() * 0.5);
     return g;
   }
+  if (theme === 'desert') {
+    if (rng() < 0.6) {
+      // 仙人掌
+      const cm = mat([0x4a8a4a, 0x5a9a4a, 0x3a7a4a][Math.floor(rng() * 3)]);
+      const h = 1.4 + rng() * 1.2;
+      g.add(mesh(G.cyl(0.22, 0.26, h, 7), cm, 0, h / 2, 0));
+      g.add(mesh(G.sph(0.22, 7, 4, 0, Math.PI * 2, 0, Math.PI / 2), cm, 0, h, 0));
+      for (const sx of [-1, 1]) {
+        if (rng() < 0.3) continue;
+        const ay = h * (0.35 + rng() * 0.3), ah = 0.5 + rng() * 0.5;
+        g.add(mesh(G.cyl(0.13, 0.13, 0.45, 6).rotateZ(Math.PI / 2), cm, sx * 0.4, ay, 0));
+        g.add(mesh(G.cyl(0.13, 0.13, ah, 6), cm, sx * 0.6, ay + ah / 2, 0));
+      }
+      if (rng() < 0.4) g.add(mesh(G.sph(0.08, 6, 4), mat(0xff6a9a), 0, h + 0.15, 0, false));
+    } else {
+      // 棕榈
+      const trunk = mat(0x8a6a40);
+      const tilt = (rng() - 0.5) * 0.5;
+      for (let i = 0; i < 5; i++) {
+        const seg = mesh(G.cyl(0.13 - i * 0.012, 0.16 - i * 0.012, 0.55, 6), trunk, Math.sin(tilt) * i * 0.5, 0.28 + i * 0.52, 0);
+        seg.rotation.z = -tilt;
+        g.add(seg);
+      }
+      const top = new THREE.Group();
+      top.position.set(Math.sin(tilt) * 2.5, 2.7, 0);
+      const leaf = mat(0x4a9a3a);
+      for (let i = 0; i < 7; i++) {
+        const l = mesh(G.box(1.5, 0.05, 0.32), leaf, 0, 0, 0);
+        l.geometry.translate(0.75, 0, 0);
+        l.rotation.y = (i / 7) * Math.PI * 2;
+        l.rotation.z = -0.45;
+        top.add(l);
+      }
+      top.add(mesh(G.sph(0.16, 6, 5), mat(0x6a4a2a), 0, -0.1, 0));
+      g.add(top);
+    }
+    g.scale.setScalar(0.8 + rng() * 0.45);
+    return g;
+  }
   const snow = theme === 'snow';
   g.add(mesh(G.cyl(0.12, 0.18, 0.7, 5), mat(0x6a4a2a), 0, 0.35, 0));
   const leaf = snow ? mat(0x2a6a5a) : mat([0x3a9a4a, 0x4aaa3a, 0x2a8a5a][Math.floor(rng() * 3)]);
@@ -730,8 +858,23 @@ export function makeTree(theme, rng) {
 }
 
 export function makeRock(theme, rng) {
-  const c = theme === 'lava' ? 0x3a3034 : theme === 'snow' ? 0x9aa8b8 : theme === 'swamp' ? 0x4a5048 : 0x8a8a80;
+  const c = theme === 'lava' ? 0x3a3034 : theme === 'snow' ? 0x9aa8b8 : theme === 'swamp' ? 0x4a5048 : theme === 'desert' ? 0xc89a60 : 0x8a8a80;
   const g = new THREE.Group();
+  if (theme === 'desert' && rng() < 0.4) {
+    // 断裂石柱 / 方尖碑遗迹
+    const sm = mat(0xd8b080);
+    if (rng() < 0.5) {
+      const h = 0.8 + rng() * 1.6;
+      g.add(mesh(G.box(0.8, 0.25, 0.8), sm, 0, 0.12, 0));
+      g.add(mesh(G.cyl(0.3, 0.32, h, 8), sm, 0, 0.25 + h / 2, 0));
+      for (let i = 0; i < 2; i++) { const d = mesh(G.cyl(0.3, 0.3, 0.4, 8), sm, 0.6 + i * 0.4, 0.3, (rng() - 0.5)); d.rotation.z = Math.PI / 2; g.add(d); }
+    } else {
+      const h = 2 + rng() * 1.5;
+      g.add(mesh(G.cyl(0.18, 0.4, h, 4), sm, 0, h / 2, 0));
+      g.add(mesh(G.cone(0.2, 0.4, 4), glowMat(0xffc040, 0.8), 0, h + 0.2, 0));
+    }
+    return g;
+  }
   const r = mesh(G.dod(0.4 + rng() * 0.4), mat(c), 0, 0.2, 0);
   r.scale.y = 0.6 + rng() * 0.5;
   r.rotation.y = rng() * 6;

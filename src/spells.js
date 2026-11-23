@@ -745,6 +745,79 @@ export function castCard(g, id, pos, tower) {
       } });
       break;
     }
+    case 'chronoshift': {
+      audio.play('void', 0.7);
+      audio.play('blink');
+      fx.screenFlash('rgba(255,217,160,0.6)', 0.5);
+      const list = g.enemies.filter((e) => e.alive);
+      if (!list.length) { g.ui.toast('场上没有敌人'); return false; }
+      for (const e of list) {
+        const from = e.centerClone();
+        e.dist = Math.max(0, e.dist - (e.boss ? 6 : 16));
+        e.blockedBy = null;
+        e.updatePos(0);
+        g.slowEnemy(e, 0.7, 3);
+        fx.trail(from, 0xffd9a0, 1.2, 0.5, 0, 3);
+        fx.burst(e.centerClone(), { count: 10, color: 0xffd9a0, intensity: 2.5, speed: 2, life: 0.7, size: 0.5 });
+      }
+      fx.ring(V(0, 0, 0), 0xffd9a0, 26, 1.1);
+      g.ui.banner('⌛ 时光回溯', '#ffd9a0');
+      break;
+    }
+    case 'aegis': {
+      audio.play('shield');
+      audio.play('heal', 0.6);
+      g.aegis = (g.aegis || 0) + 3;
+      g.world.setAegis(g.aegis);
+      const b = g.world.basePos;
+      fx.pillar(b, 0xffe680, 2.5, 20, 1.2);
+      fx.ring(b, 0xffe680, 5, 0.7);
+      fx.burst(b.clone().setY(2), { count: 50, color: 0xffe680, intensity: 2.5, speed: 4, life: 1.1, size: 0.6, up: 3 });
+      g.ui.floatText(b.clone().setY(5), `🔆 圣盾 ×${g.aegis}`, '#ffe680', true);
+      break;
+    }
+    case 'shatter': {
+      const list = g.enemies.filter((e) => e.alive && !e.hidden && (e.isFrozen(g.time) || g.time < e.slowUntil));
+      if (!list.length) { g.ui.toast('没有被冻结或减速的敌人'); return false; }
+      audio.play('freeze');
+      audio.play('explode', 0.6);
+      fx.screenFlash('rgba(190,244,255,0.6)', 0.35);
+      list.forEach((e, i) => {
+        const frozen = e.isFrozen(g.time);
+        const c = e.centerClone();
+        if (i < 30) {
+          fx.burst(c, { count: frozen ? 26 : 12, color: 0xe0f8ff, color2: 0x5ab8ff, intensity: 2.5, speed: 6, life: 0.6, size: 0.5, gravity: 10 });
+          fx.ring(e.pos, 0xbff4ff, 1.6, 0.35);
+        }
+        g.damageEnemy(e, frozen ? 440 : 220, 'magic', src);
+        if (e.alive) g.freezeEnemy(e, e.boss ? 0.4 : 1);
+      });
+      fx.shake(0.4);
+      g.ui.banner('💎 碎冰冲击', '#bff4ff', `命中 ${list.length} 名敌人`);
+      break;
+    }
+    case 'quicksand': {
+      audio.play('stomp', 0.6);
+      audio.play('sandstorm', 0.4);
+      fx.burst(pos.clone().setY(0.3), { count: 40, color: 0xd8b878, smoke: true, speed: 4, flat: true, life: 1, size: 1.2, sizeEnd: 2.2, alpha: 0.6 });
+      zone(g, pos, 3, 7, 0xe0b060, 1, (dt) => {
+        if (Math.random() < dt * 14) {
+          const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 3;
+          fx.burst(V(pos.x + Math.cos(a) * r, 0.1, pos.z + Math.sin(a) * r), { count: 1, color: 0xc8a060, smoke: true, speed: 0.6, life: 0.8, size: 0.7, sizeEnd: 0.2, alpha: 0.5 });
+        }
+        for (const e of g.enemies) {
+          if (!e.alive || e.flying || e.reviveUntil) continue;
+          const dx = e.pos.x - pos.x, dz = e.pos.z - pos.z;
+          if (dx * dx + dz * dz > 9) continue;
+          // 拖出地面并暂时禁止钻地
+          if (e.burrowUntil > g.time) e.burrowUntil = 0;
+          e.noBurrowUntil = g.time + 2;
+          e.zoneSlow = Math.min(e.zoneSlow || 1, 0.35);
+          if (!e.hidden) g.damageEnemy(e, 35 * dt, 'magic', src, true);
+        }
+      });
+      break;
+    }
     default: return false;
   }
   return true;

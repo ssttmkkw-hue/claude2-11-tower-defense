@@ -59,6 +59,21 @@ export const MAPS = [
     ],
     startGold: 460,
   },
+  {
+    id: 'dunes',
+    name: '黄沙古迹',
+    desc: '烈日下的失落王陵，三路敌军自沙海涌来。圣甲虫钻地潜行，木乃伊不死复生，沙暴法老在王陵深处苏醒。',
+    theme: 'desert',
+    w: 22, h: 14,
+    difficulty: 2,
+    waves: 20,
+    paths: [
+      [[0, 2], [6, 2], [6, 7], [15, 7], [15, 11], [21, 11]],
+      [[0, 12], [6, 12], [6, 7], [15, 7], [15, 11], [21, 11]],
+      [[12, 0], [12, 4], [9, 4], [9, 7], [15, 7], [15, 11], [21, 11]],
+    ],
+    startGold: 540,
+  },
 ];
 
 // ---------- 敌人 ----------
@@ -76,11 +91,15 @@ export const ENEMIES = {
   bomber: { icon: '🧨', name: '自爆地精', hp: 85, speed: 3.1, armor: 0, mres: 0, gold: 7, dmg: 2, size: 0.6, color: 0x7a5a3a, model: 'bomber', bomb: true },
   shieldbearer: { icon: '🔰', name: '圣盾卫士', hp: 230, speed: 1.75, armor: 0.35, mres: 0.2, gold: 16, dmg: 2, size: 0.72, color: 0x8a9ab8, model: 'shieldbearer', aura: true, atk: 24 },
   voidling: { icon: '🟪', name: '虚空仆从', hp: 60, speed: 3.3, armor: 0, mres: 0.3, gold: 2, dmg: 1, size: 0.45, color: 0xb06aff, model: 'ghost' },
+  scarab: { icon: '🪲', name: '掘沙圣甲虫', hp: 95, speed: 2.5, armor: 0.35, mres: 0, gold: 8, dmg: 1, size: 0.55, color: 0x2a8a8a, model: 'scarab', burrow: true },
+  hexer: { icon: '🧿', name: '诅咒祭司', hp: 150, speed: 1.9, armor: 0, mres: 0.4, gold: 16, dmg: 1, size: 0.62, color: 0x8a2a6a, model: 'hexer', hexer: true },
+  mummy: { icon: '🧟', name: '复生木乃伊', hp: 170, speed: 1.8, armor: 0.2, mres: 0, gold: 11, dmg: 1, size: 0.66, color: 0xd8c8a0, model: 'mummy', revive: 0.5, atk: 20 },
   skeleton: { icon: '💀', name: '骷髅兵', hp: 55, speed: 2.4, armor: 0.2, mres: 0, gold: 3, dmg: 1, size: 0.55, color: 0xe8e2cf, model: 'skeleton' },
   // 首领
   golem: { icon: '🗿', name: '岩石巨像', hp: 2600, speed: 1.0, armor: 0.4, mres: 0.1, gold: 150, dmg: 8, size: 1.6, color: 0x9b8a72, model: 'golem', boss: true, stomp: true, atk: 60 },
   lich: { icon: '☠️', name: '暗影巫妖', hp: 3200, speed: 1.2, armor: 0.1, mres: 0.4, gold: 180, dmg: 10, size: 1.4, color: 0x6c3bd0, model: 'lich', boss: true, summoner: true, atk: 40 },
   voidlord: { icon: '👁️', name: '虚空领主', hp: 4200, speed: 1.15, armor: 0.2, mres: 0.35, gold: 230, dmg: 10, size: 1.5, color: 0x8a3aff, model: 'voidlord', boss: true, blink: true, atk: 55 },
+  pharaoh: { icon: '👑', name: '沙暴法老', hp: 4400, speed: 1.1, armor: 0.3, mres: 0.3, gold: 240, dmg: 10, size: 1.5, color: 0xe0b040, model: 'pharaoh', boss: true, sandstorm: true, revive: 0.35, atk: 50 },
   dragon: { icon: '🐉', name: '炽炎古龙', hp: 4800, speed: 1.3, armor: 0.3, mres: 0.3, gold: 250, dmg: 10, size: 1.8, color: 0xd8442c, model: 'dragon', boss: true, flying: true, breath: true },
 };
 
@@ -237,6 +256,10 @@ export const CARDS = {
   bounty: { name: '赏金令', icon: '📜', cost: 2, rarity: 'rare', target: 'none', color: '#ffc040', desc: '15 秒内击杀敌人获得的金币翻倍。' },
   overclock: { school: 'arcane', name: '超载回路', icon: '⚙️', cost: 2, rarity: 'rare', target: 'tower', color: '#5cf0ff', desc: '目标防御塔攻击速度 +100%，持续 15 秒。' },
   judgment: { school: 'holy', name: '末日审判', icon: '⚖️', cost: 6, rarity: 'epic', target: 'none', color: '#fff0a0', desc: '圣光审判全场：每个敌人受到 150 + 10% 最大生命伤害（首领 4%），并击碎护盾。' },
+  chronoshift: { school: 'arcane', name: '时光回溯', icon: '⌛', cost: 5, rarity: 'epic', target: 'none', color: '#ffd9a0', desc: '扭转时间：所有敌人沿路径后退 8 格距离（首领 3 格）并减速 30% 持续 3 秒。' },
+  aegis: { school: 'holy', name: '圣盾护佑', icon: '🔆', cost: 3, rarity: 'rare', target: 'none', color: '#ffe680', desc: '为圣坛施加圣盾，抵挡接下来 3 次漏怪伤害。' },
+  shatter: { school: 'frost', name: '碎冰冲击', icon: '💎', cost: 4, rarity: 'epic', target: 'none', color: '#bff4ff', desc: '所有被冻结或减速的敌人受到 220 伤害（被冻结者翻倍），并再次冻结 1 秒。' },
+  quicksand: { school: 'nature', name: '流沙陷阱', icon: '⏬', cost: 3, rarity: 'common', target: 'point', radius: 3, color: '#e0b060', desc: '流沙持续 7 秒：减速地面敌人 65%，每秒 35 伤害，并将钻地敌人拖出地面。' },
   // —— 传说 ——
   supernova: { school: 'arcane', name: '超新星', icon: '💥', cost: 8, rarity: 'legendary', target: 'point', radius: 5.5, color: '#ff9aff', desc: '恒星坍缩 2 秒并吸引敌人，随后爆发造成 1100 伤害并眩晕 1.5 秒。' },
   armageddon: { school: 'fire', name: '天启', icon: '🔥', cost: 8, rarity: 'legendary', target: 'none', color: '#ff7a1a', desc: '14 颗陨石轰炸全场敌人，每颗 400 伤害并灼烧。' },
@@ -336,6 +359,7 @@ export const RELICS = {
   blueprint: { name: '大师蓝图', icon: '📐', desc: '防御塔建造与升级费用 -15%。' },
   lens: { name: '奥术透镜', icon: '🔍', desc: '所有卡牌伤害 +20%。' },
   focus: { name: '专注法珠', icon: '📿', desc: '连携上限提升至 5 层，且连携窗口延长至 12 秒。' },
+  hourglass: { name: '沙之时计', icon: '⏱️', desc: '每波开始时获得 2 点法力，并额外抽 1 张牌。' },
   bulwark: { name: '守护壁垒', icon: '🛡️', desc: '英雄与召唤物受到伤害 -20%；近战英雄额外阻挡 1 名敌人。' },
 };
 export const RELIC_IDS = Object.keys(RELICS);
@@ -380,7 +404,10 @@ export function buildWave(map, n) {
   const last = map.waves;
   // 多路线地图每组敌人略少，但总量更多
   const cnt = (c) => Math.max(1, Math.round(c * (P > 1 ? 0.85 : 1) * (0.9 + 0.1 * map.difficulty) * (1.2 + Math.min(n, 10) * 0.02)));
-  const add = (type, count, interval, delay = 0, path = 0) => groups.push({ type, count: cnt(count), interval, delay, path: path % P });
+  // 三路线地图：模板中的各组依次分配到不同路线
+  let gi = 0;
+  const add = (type, count, interval, delay = 0, path = 0) => groups.push({ type, count: cnt(count), interval, delay, path: (P > 2 ? path + gi++ : path) % P });
+  const desert = map.id === 'dunes';
 
   if (n === last) {
     // 最终波：古龙 + 大军
@@ -392,17 +419,19 @@ export function buildWave(map, n) {
     add('splitter', 4, 1.2, 18, 1);
     if (map.id === 'frost') add('lich', 1, 1, 22, 0);
     if (map.id === 'swamp') { add('voidlord', 1, 1, 20, 1); add('troll', 5, 1.2, 14, 0); }
+    if (desert) { add('pharaoh', 1, 1, 20, 2); add('mummy', 6, 1, 10, 0); add('scarab', 8, 0.6, 14, 1); add('hexer', 2, 4, 6, 2); }
     return groups;
   }
   if (n % 5 === 0) {
     const tier = n / 5;
-    const boss = tier === 2 ? 'lich' : tier === 3 ? 'voidlord' : 'golem';
+    const boss = desert && tier === 2 ? 'pharaoh' : tier === 2 ? 'lich' : tier === 3 ? (desert ? 'lich' : 'voidlord') : 'golem';
     add('slime', 6 + n, 0.6, 0, 0);
     add(boss, 1, 1, 4, 0);
     if (P > 1) add('wolf', 6 + tier * 2, 0.5, 2, 1);
     if (tier >= 2) add('knight', 3 + tier, 1.4, 8, 1);
     if (tier >= 3) add('ghost', 8, 0.6, 10, 0);
     if (map.id === 'swamp' && tier >= 1) add('bomber', 4 + tier * 2, 0.6, 6, 1);
+    if (desert) { add('scarab', 4 + tier * 2, 0.7, 5, 1); if (tier >= 2) add('mummy', 2 + tier, 1.2, 9, 2); }
     return groups;
   }
   let tpl = WAVE_TEMPLATES[n - 1];
@@ -412,6 +441,16 @@ export function buildWave(map, n) {
     tpl = (n % 2 ? a : b).map(([t, c, i, d, p]) => [t, c * (1 + (n - 17) * 0.15), i, d, p]);
   }
   for (const [type, c, interval, delay = 0, path = 0] of tpl) add(type, c, interval, delay, path);
+  // 沙漠地图：部分敌人替换为本地物种
+  if (desert) {
+    for (const g of groups) {
+      if (g.type === 'slime' || g.type === 'splitter') g.type = n >= 3 ? 'scarab' : g.type;
+      else if (g.type === 'troll' || g.type === 'knight') g.type = n >= 6 && g.type === 'troll' ? 'mummy' : g.type;
+      else if (g.type === 'shaman') g.type = 'hexer';
+    }
+    if (n >= 4) add('mummy', 2 + Math.floor(n / 4), 1.3, 7, 2);
+    if (n >= 8) add('hexer', 1 + Math.floor(n / 8), 3, 10, 1);
+  }
   return groups;
 }
 

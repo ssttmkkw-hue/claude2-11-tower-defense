@@ -17,6 +17,10 @@ export const THEMES = {
     sky: [0x2a3a3a, 0x8aa08a], fog: 0x5a6a5a, ground: 0x4a5a3a, ground2: 0x42523a, path: 0x6a5a40, pathEdge: 0x3a3226,
     hill: 0x34402e, hillTop: 0x4e5e3a, liquid: 'bog', sun: 0xe8f0c8, sunI: 1.9, hemi: [0xb0c8a0, 0x2a3424], amb: 'spore', crystal: 0x6affc0,
   },
+  desert: {
+    sky: [0xd89a5a, 0xfff0d0], fog: 0xf0d8b0, ground: 0xd8b878, ground2: 0xcdac6c, path: 0xa8865a, pathEdge: 0x7a5a38,
+    hill: 0xc09858, hillTop: 0xe8c890, liquid: 'oasis', sun: 0xfff0d0, sunI: 2.9, hemi: [0xffe8c0, 0x8a6a40], amb: 'sand', crystal: 0x40e0d0,
+  },
   snow: {
     sky: [0x8ab0d8, 0xe8f0ff], fog: 0xd0e0f0, ground: 0xc4d2e2, ground2: 0xb6c6d8, path: 0x8aa0ba, pathEdge: 0x6a8098,
     hill: 0xa8b8cc, hillTop: 0xdce8f4, liquid: 'ice', sun: 0xf0f4ff, sunI: 1.9, hemi: [0xd8e8ff, 0x6a7a9a], amb: 'snow', crystal: 0x9ae0ff,
@@ -77,7 +81,7 @@ export class World {
       for (let x = 0; x < this.W; x++) this.cells[z].push({ path: false, tower: null, deco: false });
     }
     // ---- 路径 ----
-    this.portalColor = { lava: 0xff4a2a, swamp: 0x4aff9a }[map.theme] || 0xa04aff;
+    this.portalColor = { lava: 0xff4a2a, swamp: 0x4aff9a, desert: 0xffa030 }[map.theme] || 0xa04aff;
     this.paths = [];
     for (const wp of map.paths) {
       const pts = [];
@@ -305,6 +309,7 @@ export class World {
       lava: [0xff3a0a, 0xffc040],
       ice: [0x8ab8d8, 0xe0f4ff],
       bog: [0x1a3a2a, 0x5a9a6a],
+      oasis: [0x0a7a8a, 0x7af0e0],
     }[kind];
     const m = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 }, c1: { value: new THREE.Color(colors[0]) }, c2: { value: new THREE.Color(colors[1]) }, uKind: { value: kind === 'lava' ? 1 : kind === 'ice' ? 2 : 0 }, fogColor: { value: new THREE.Color(this.theme.fog) } },
@@ -410,6 +415,19 @@ export class World {
     }
   }
 
+  // 圣盾护佑：圣坛外的金色护罩（n = 剩余次数）
+  setAegis(n) {
+    if (!this.aegisMesh) {
+      const m = new THREE.MeshBasicMaterial({ color: 0xffe680, transparent: true, opacity: 0.22, wireframe: true, blending: THREE.AdditiveBlending, depthWrite: false });
+      this.aegisMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(3.2, 2), m);
+      this.aegisMesh.position.copy(this.basePos).setY(1.2);
+      this.aegisMesh.scale.y = 0.85;
+      this.group.add(this.aegisMesh);
+    }
+    this.aegisN = n;
+    this.aegisMesh.visible = n > 0;
+  }
+
   canBuild(gx, gz) {
     if (!this.inGrid(gx, gz)) return false;
     const c = this.cells[gz][gx];
@@ -426,6 +444,10 @@ export class World {
     }
     for (const p of this.portals) {
       p.userData.inner.material.opacity = 0.55 + Math.sin(this.time * 4) * 0.2;
+    }
+    if (this.aegisMesh && this.aegisMesh.visible) {
+      this.aegisMesh.rotation.y += dt * 0.4;
+      this.aegisMesh.material.opacity = 0.12 + this.aegisN * 0.05 + Math.sin(this.time * 3) * 0.04;
     }
   }
 

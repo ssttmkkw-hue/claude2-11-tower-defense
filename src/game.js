@@ -51,6 +51,7 @@ export class Game {
     this.combo = { school: null, n: 0, until: 0 };
     this.lastCard = null;
     this.soulKills = 0;
+    this.aegis = 0;
     this.aimSkill = -1;
     if (this.tiers.arcane >= 1) this.maxMana += 2;
     // 卡组
@@ -186,7 +187,7 @@ export class Game {
     const out = [];
     const r2 = r * r;
     for (const e of this.enemies) {
-      if (!e.alive || (e.flying && !air)) continue;
+      if (!e.alive || e.hidden || (e.flying && !air)) continue;
       const dx = e.pos.x - pos.x, dz = e.pos.z - pos.z;
       if (dx * dx + dz * dz <= r2 + (e.boss ? 2 : 0)) out.push(e);
     }
@@ -195,7 +196,7 @@ export class Game {
   nearestEnemy(pos, r, air) {
     let best = null, bd = r * r;
     for (const e of this.enemies) {
-      if (!e.alive || (e.flying && !air)) continue;
+      if (!e.alive || e.hidden || (e.flying && !air)) continue;
       const dx = e.pos.x - pos.x, dz = e.pos.z - pos.z;
       const d = dx * dx + dz * dz;
       if (d < bd) { bd = d; best = e; }
@@ -204,7 +205,7 @@ export class Game {
   }
 
   damageEnemy(e, amount, dtype, src, silent = false) {
-    if (!e.alive) return;
+    if (!e.alive || e.hidden) return;
     if (e.isPhased(this.time) && dtype === 'phys') { if (!silent) this.fx.burst(e.center, { count: 3, color: 0x9fe8ff, intensity: 1, speed: 2, life: 0.2, size: 0.3 }); return; }
     let a = amount;
     if (dtype === 'phys') a *= 1 - e.def.armor;
@@ -235,7 +236,9 @@ export class Game {
   }
 
   killEnemy(e, src) {
-    if (!e.alive) return;
+    if (!e.alive || e.reviveUntil) return;
+    // 木乃伊 / 法老：首次死亡时复生（普通木乃伊处于灼烧时无法复生）
+    if (e.def.revive && !e.revived && (e.boss || this.time >= e.burnUntil)) { e.startRevive(); return; }
     const c = e.centerClone();
     e.destroy();
     this.stats.kills++;
@@ -260,6 +263,7 @@ export class Game {
       this.fx.screenFlash('rgba(255,255,255,0.8)', 0.5);
       audio.play('bigexplode');
       this.ui.banner(`击败首领：${e.def.name}！`, '#ffd257');
+      if (!this.enemies.some((x) => x !== e && x.alive && x.boss)) audio.startMusic('battle');
       for (const u of this.units) u.gainXp(150);
     } else {
       this.fx.burst(c, { count: 18, color: col, intensity: 1.6, speed: 5, life: 0.6, size: 0.6, gravity: 8, up: 2 });
@@ -308,6 +312,16 @@ export class Game {
   leak(e) {
     const dmg = e.def.dmg;
     e.destroy();
+    if (this.aegis > 0) {
+      this.aegis--;
+      const b = this.world.basePos;
+      this.fx.ring(b, 0xffe680, 4, 0.5);
+      this.fx.burst(b.clone().setY(2.5), { count: 30, color: 0xffe680, intensity: 2.5, speed: 5, life: 0.6, size: 0.6 });
+      this.ui.floatText(b.clone().setY(4), `🔆 抵挡！(${this.aegis})`, '#ffe680', true);
+      audio.play('shield');
+      this.world.setAegis(this.aegis);
+      return;
+    }
     this.lives -= dmg;
     this.stats.leaks += dmg;
     audio.play('leak');
@@ -560,7 +574,8 @@ export class Game {
     this.spawnQueue.sort((a, b) => a.t - b.t);
     this.waveTime = 0;
     this.drawTimer = 0;
-    this.drawCards(2);
+    this.drawCards(this.has('hourglass') ? 3 : 2);
+    if (this.has('hourglass')) this.mana = Math.min(this.maxMana, this.mana + 2);
     this.waveLeaks = 0;
     haptic(hasBoss ? [40, 60, 40] : 20);
     audio.play(hasBoss ? 'boss' : 'wave');
@@ -696,6 +711,7 @@ export class Game {
       lich: '每 8 秒召唤骷髅兵 · 半血狂暴',
       dragon: '飞行 · 对英雄喷吐烈焰 · 半血狂暴',
       voidlord: '相位跃迁向前闪烁 · 66%/33% 生命展开虚空屏障并召唤仆从',
+      pharaoh: '沙暴令附近防御塔停火 · 60%/30% 生命封入圣棺并唤醒仆从 · 被击败后复生一次',
     }[e.type] || '';
     const prev = this.camTarget.clone();
     if (!this.gest) {
@@ -704,6 +720,25 @@ export class Game {
     }
     this.later(0.2, () => this.ui.banner(`${e.def.icon} ${e.def.name}`, '#ff6a5a', lore));
     audio.play('roar', 0.7);
+  }
+
+  // 新敌人首次出现：提示其机制
+  firstSighting(e) {
+    if (!this.seen) this.seen = new Set();
+    if (this.seen.has(e.type)) return;
+    this.seen.add(e.type);
+    const tip = {
+      scarab: '会周期性钻入地下：无法被选中、移速加快。流沙陷阱可将其拖出！',
+      hexer: '诅咒附近的防御塔，使其停火 3.5 秒。优先击杀！',
+      mummy: '首次倒下后会复生（50% 生命）。灼烧中被击杀则无法复生。',
+      troll: '持续再生生命，灼烧可抑制再生。',
+      bomber: '被阻挡或死亡时爆炸，眩晕附近英雄。',
+      shieldbearer: '使周围敌人受到的伤害 -30%。',
+      ghost: '周期性进入相位，免疫物理伤害。',
+      shaman: '治疗附近受伤的敌人。',
+      splitter: '死亡时分裂为 3 只小史莱姆。',
+    }[e.type];
+    if (tip) this.ui.toast(`${e.def.icon} <b>${e.def.name}</b>：${tip}`, 4200);
   }
 
   // ---------- 布局 / 镜头适配 ----------
@@ -846,7 +881,7 @@ export class Game {
   pickEnemy() {
     let best = null, bd = 1.6 * 1.6;
     for (const e of this.enemies) {
-      if (!e.alive) continue;
+      if (!e.alive || e.hidden) continue;
       const d = (e.pos.x - this.mouseWorld.x) ** 2 + (e.pos.z - this.mouseWorld.z) ** 2 - (e.boss ? 2 : 0);
       if (d < bd) { bd = d; best = e; }
     }
@@ -1014,7 +1049,8 @@ export class Game {
         this.enemies.push(e);
         const portal = this.world.portals[s.path];
         this.fx.burst(portal.position.clone().setY(1.3), { count: 15, color: this.world.portalColor, intensity: 2.5, speed: 3, life: 0.5, size: 0.6 });
-        if (e.boss) { this.fx.shake(0.8); this.ui.bossBar(e); this.bossIntro(e); }
+        if (e.boss) { this.fx.shake(0.8); this.ui.bossBar(e); this.bossIntro(e); audio.startMusic('boss'); }
+        else this.firstSighting(e);
       }
       this.drawTimer += dt;
       if (this.drawTimer >= (this.has('prophecy') ? 7 : 9)) { this.drawTimer = 0; this.drawCards(1); }
@@ -1064,6 +1100,7 @@ export class Game {
       const x = rand(-28, 28), z = rand(-20, 20);
       if (kind === 'firefly') fx.glow.emit({ x, y: rand(0.3, 2.5), z, vx: rand(-0.4, 0.4), vy: rand(-0.1, 0.3), vz: rand(-0.4, 0.4), life: 4, size: 0.35, sizeEnd: 0.2, color: fx.col(0xd8ff7a, 2), drag: 0 });
       else if (kind === 'spore') fx.glow.emit({ x, y: rand(0, 1), z, vx: rand(-0.2, 0.2), vy: rand(0.3, 0.8), vz: rand(-0.2, 0.2), life: 5, size: 0.3, sizeEnd: 0.1, color: fx.col(Math.random() < 0.5 ? 0x6affc0 : 0xc08aff, 1.8), drag: 0 });
+      else if (kind === 'sand') { for (let k = 0; k < 2; k++) fx.glow.emit({ x: rand(-30, 20), y: rand(0.2, 2.5), z: rand(-20, 20), vx: rand(2.5, 4.5), vy: rand(-0.1, 0.2), vz: rand(-0.4, 0.4), life: 3, size: 0.22, sizeEnd: 0.1, color: fx.col(0xffe0a0, 1.1), drag: 0 }); }
       else if (kind === 'ember') fx.glow.emit({ x, y: 0, z, vx: rand(-0.3, 0.3), vy: rand(1, 2.5), vz: rand(-0.3, 0.3), life: 3, size: 0.3, sizeEnd: 0.05, color: fx.col(0xff7a2a, 3), color2: fx.col(0xff2a00, 1), drag: 0 });
       else {
         for (let k = 0; k < 3; k++) fx.glow.emit({ x: rand(-28, 28), y: rand(8, 14), z: rand(-22, 18), vx: rand(0.3, 1), vy: -1.6, vz: rand(-0.2, 0.2), life: 7, size: 0.3, sizeEnd: 0.3, color: fx.col(0xffffff, 0.9), drag: 0 });

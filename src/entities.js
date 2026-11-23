@@ -74,8 +74,48 @@ export class Enemy {
     this.barrierUntil = 0;
     this.lastHit = -9;
     this.enraged = false;
-    this.barrierMarks = this.def.blink ? [0.66, 0.33] : [];
+    this.barrierMarks = this.def.blink ? [0.66, 0.33] : this.def.sandstorm ? [0.6, 0.3] : [];
     this.barrierMesh = null;
+    // 钻地 / 复生
+    this.hidden = false;
+    this.burrowUntil = 0;
+    this.burrowed = false;
+    this.revived = false;
+    this.reviveUntil = 0;
+    if (this.def.burrow) this.specialCD = rand(1.5, 3.5);
+  }
+
+  // 复生：倒地若干秒后以部分生命站起（木乃伊 / 法老）
+  startRevive() {
+    const g = this.game;
+    this.revived = true;
+    this.hp = 1;
+    this.reviveUntil = g.time + (this.boss ? 3 : 1.6);
+    this.blockedBy = null;
+    this.burnUntil = 0;
+    g.fx.burst(this.center, { count: this.boss ? 60 : 20, color: 0xd8c8a0, smoke: true, speed: 3, life: 1, size: 1.2, sizeEnd: 2, alpha: 0.5 });
+    audio.play('revive', this.boss ? 1 : 0.5);
+    if (this.boss) {
+      g.ui.banner(`${this.def.name} 即将复生！`, '#ffc040', '趁它倒下时集中火力也无济于事……准备第二回合');
+      g.fx.pillar(this.pos, 0xffc040, 2, 20, 3);
+    }
+  }
+  finishRevive() {
+    const g = this.game;
+    this.reviveUntil = 0;
+    this.hp = Math.round(this.maxHp * this.def.revive);
+    this.mesh.rotation.x = 0;
+    g.fx.burst(this.center, { count: this.boss ? 80 : 25, color: this.boss ? 0xffc040 : 0x7affa0, intensity: 2.5, speed: 5, life: 0.8, size: 0.7, up: 2 });
+    g.fx.ring(this.pos, this.boss ? 0xffc040 : 0x7affa0, this.boss ? 6 : 2, 0.6);
+    if (this.boss) { g.fx.shake(0.8); audio.play('roar'); }
+  }
+
+  // 诅咒 / 沙暴：令防御塔暂时停火
+  hexTower(tw, dur, color = 0xff4ad8) {
+    const g = this.game;
+    tw.hexUntil = Math.max(tw.hexUntil || 0, g.time + dur);
+    g.fx.lightning(this.centerClone(), tw.pos.clone().setY(2.5), color, 0.15, 0.35, false);
+    g.fx.burst(tw.pos.clone().setY(2.5), { count: 20, color, intensity: 2.5, speed: 3, life: 0.6, size: 0.6 });
   }
 
   // 自爆地精：死亡或被阻挡时爆炸，伤害并眩晕附近友军
@@ -107,18 +147,22 @@ export class Enemy {
 
   startBarrier() {
     const g = this.game;
+    const sand = !!this.def.sandstorm;
+    const col = sand ? 0xffc040 : 0xb06aff;
     this.barrierUntil = g.time + 3.5;
-    audio.play('void', 0.8);
-    g.ui.toast(`🛡 ${this.def.name} 展开虚空屏障（受到伤害 -90%）并召唤仆从！`);
+    audio.play(sand ? 'sandstorm' : 'void', 0.8);
+    g.ui.toast(sand ? `⚱️ ${this.def.name} 封入圣棺（受到伤害 -90%），唤醒木乃伊与圣甲虫！` : `🛡 ${this.def.name} 展开虚空屏障（受到伤害 -90%）并召唤仆从！`);
     if (!this.barrierMesh) {
-      this.barrierMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(this.def.size * 2.1, 1), new THREE.MeshBasicMaterial({ color: 0xb06aff, transparent: true, opacity: 0.28, wireframe: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      const geo = sand ? new THREE.CylinderGeometry(this.def.size * 1.3, this.def.size * 1.5, this.def.size * 3.6, 6, 2) : new THREE.IcosahedronGeometry(this.def.size * 2.1, 1);
+      this.barrierMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.28, wireframe: true, blending: THREE.AdditiveBlending, depthWrite: false }));
       g.scene.add(this.barrierMesh);
     }
-    for (let i = 0; i < 5; i++) {
-      const m = new Enemy(g, 'voidling', this.pathIdx, g.waveScale, Math.max(0, this.dist - 0.5 - i * 0.7), rand(-0.7, 0.7));
+    const spawn = sand ? ['mummy', 'mummy', 'scarab', 'scarab', 'scarab'] : ['voidling', 'voidling', 'voidling', 'voidling', 'voidling'];
+    spawn.forEach((type, i) => {
+      const m = new Enemy(g, type, this.pathIdx, g.waveScale, Math.max(0, this.dist - 0.5 - i * 0.7), rand(-0.7, 0.7));
       g.enemies.push(m);
-    }
-    g.fx.burst(this.center, { count: 50, color: 0xb06aff, intensity: 3, speed: 6, life: 0.9, size: 0.8 });
+    });
+    g.fx.burst(this.center, { count: 50, color: col, intensity: 3, speed: 6, life: 0.9, size: 0.8 });
   }
 
   get center() { return _v2.set(this.pos.x, this.pos.y + (this.boss ? 1.5 : 0.6) * this.def.size, this.pos.z); }
@@ -146,6 +190,26 @@ export class Enemy {
     const g = this.game;
     const t = g.time;
     this.t += dt;
+    // 复生中：倒地不动，不可被选中
+    if (this.reviveUntil) {
+      this.hidden = true;
+      const k = Math.max(0, (this.reviveUntil - t) / (this.boss ? 3 : 1.6));
+      this.mesh.rotation.x = -Math.PI / 2 * Math.min(1, k * 3);
+      if (Math.random() < dt * 12) g.fx.trail(_v.set(this.pos.x + rand(-0.6, 0.6), this.pos.y + 0.3, this.pos.z + rand(-0.6, 0.6)), this.boss ? 0xffc040 : 0x7affa0, 0.8, 0.8, 0, 2);
+      this.bar.visible = false;
+      if (t >= this.reviveUntil) this.finishRevive();
+      return;
+    }
+    // 钻地
+    const burrowed = t < this.burrowUntil;
+    if (burrowed !== this.burrowed) {
+      this.burrowed = burrowed;
+      this.mesh.visible = !burrowed;
+      g.fx.burst(this.pos.clone().setY(0.2), { count: 16, color: 0xd8b878, smoke: true, speed: 3, flat: true, life: 0.7, size: 0.9, sizeEnd: 1.6, alpha: 0.6 });
+      if (burrowed) { this.blockedBy = null; audio.play('burrow', 0.4); }
+    }
+    this.hidden = burrowed;
+    if (burrowed && Math.random() < dt * 14) g.fx.burst(_v.set(this.pos.x, 0.15, this.pos.z), { count: 1, color: 0xc8a868, smoke: true, speed: 1, life: 0.6, size: 0.7, sizeEnd: 1.2, alpha: 0.5 });
     const frozen = this.isFrozen(t);
     const stunned = t < this.stunUntil;
     // 灼烧
@@ -193,7 +257,7 @@ export class Enemy {
           this.attackAnim = 0.3;
         }
       } else {
-        this.dist += this.def.speed * Math.min(speedMul, this.enraged ? 1.3 : 1) * dt;
+        this.dist += this.def.speed * Math.min(speedMul, this.enraged ? 1.3 : 1) * (this.burrowed ? 1.7 : 1) * dt;
         if (this.dist >= this.path.length) { g.leak(this); return; }
       }
       this.special(dt, t);
@@ -226,7 +290,7 @@ export class Enemy {
     }
     if (stunned && Math.random() < dt * 8) g.fx.trail(_v.set(this.pos.x + Math.cos(this.t * 6) * 0.4, this.pos.y + 1.6 * this.def.size + 0.4, this.pos.z + Math.sin(this.t * 6) * 0.4), 0xffee66, 0.5, 0.3, 0, 2);
     setBar(this.bar, this.hp / this.maxHp);
-    this.bar.visible = this.hp < this.maxHp || this.boss;
+    this.bar.visible = !this.burrowed && (this.hp < this.maxHp || this.boss);
   }
 
   special(dt, t) {
@@ -240,6 +304,32 @@ export class Enemy {
         for (const e of g.enemies) if (e !== this && e.alive && e.pos.distanceToSquared(this.pos) < 3.5 * 3.5) e.shieldedUntil = t + 0.6;
       }
       if (this.specialCD <= 0) { this.specialCD = 2.2; g.fx.ring(this.pos, 0x7ad8ff, 3.5, 0.6); }
+    }
+    if (def.burrow && this.specialCD <= 0 && !this.blockedBy) {
+      this.specialCD = rand(4, 5.5);
+      if (t >= (this.noBurrowUntil || 0)) this.burrowUntil = t + 1.6;
+    }
+    if (def.hexer && this.specialCD <= 0) {
+      let best = null, bd = 6.5 * 6.5;
+      for (const tw of g.towers) {
+        if (tw.def.support || t < (tw.hexUntil || 0)) continue;
+        const d = tw.pos.distanceToSquared(this.pos);
+        if (d < bd) { bd = d; best = tw; }
+      }
+      if (best) { this.specialCD = 6; this.attackAnim = 0.4; this.hexTower(best, 3.5); audio.play('curse', 0.6); } else this.specialCD = 0.8;
+    }
+    if (def.sandstorm && this.specialCD <= 0) {
+      this.specialCD = 10;
+      this.attackAnim = 0.5;
+      const R = 8;
+      g.fx.ring(this.pos, 0xe0b060, R, 1.0);
+      g.fx.burst(this.pos.clone().setY(0.6), { count: 120, color: 0xd8b878, smoke: true, speed: 9, flat: true, life: 1.4, size: 1.6, sizeEnd: 3.2, alpha: 0.55, drag: 1.5 });
+      g.fx.screenFlash('rgba(230,190,110,0.35)', 0.5);
+      g.fx.shake(0.4);
+      audio.play('sandstorm');
+      let n = 0;
+      for (const tw of g.towers) if (!tw.def.support && tw.pos.distanceToSquared(this.pos) < R * R) { this.hexTower(tw, 3, 0xffc040); n++; }
+      if (n && !this.toldStorm) { this.toldStorm = true; g.ui.toast(`🌪 沙暴！法老附近 ${R} 范围内的防御塔停火 3 秒`); }
     }
     if (def.bomb && Math.random() < dt * 10) g.fx.trail(_v.set(this.pos.x, this.pos.y + 1.2, this.pos.z), 0xffaa22, 0.4, 0.3, 0.1, 3);
     if (def.blink && this.specialCD <= 0) {
@@ -358,6 +448,21 @@ export class Enemy {
         if (p.orbiters) p.orbiters.forEach((o, i) => { const a = t * 1.8 + i * 1.2566; o.position.set(Math.cos(a) * 1.7, 2 + Math.sin(t * 3 + i) * 0.4, Math.sin(a) * 1.7); o.rotation.y = a; });
         if (Math.random() < dt * 8) this.game.fx.trail(_v.set(this.pos.x + rand(-0.8, 0.8), this.pos.y + 0.4, this.pos.z + rand(-0.8, 0.8)), 0x8a3aff, 1.3, 0.8, 0, 1.6);
         break;
+      case 'scarab':
+        if (p.legs) p.legs.forEach((l, i) => (l.rotation.y = Math.sin(t * 20 * sp + i) * 0.4 * sp));
+        body.position.y = Math.abs(Math.sin(t * 20 * sp)) * 0.04;
+        break;
+      case 'mummy':
+        if (p.arms) p.arms.forEach((a, i) => (a.rotation.x = this.attackAnim > 0 ? -0.8 : Math.sin(t * 4 * sp + i * Math.PI) * 0.15));
+        body.rotation.z = Math.sin(t * 4 * sp) * 0.12;
+        body.position.y = Math.abs(Math.sin(t * 4 * sp)) * 0.06;
+        break;
+      case 'pharaoh':
+        body.position.y = Math.sin(t * 1.5) * 0.1 + 0.1;
+        if (p.weapon) p.weapon.rotation.x = this.attackAnim > 0 ? -0.9 : Math.sin(t * 1.5) * 0.1;
+        if (p.orbiters) p.orbiters.forEach((o, i) => { const a = t * 1.4 + i * Math.PI / 2; o.position.set(Math.cos(a) * 1.6, 1.8 + Math.sin(t * 2 + i) * 0.3, Math.sin(a) * 1.6); o.rotation.y = -a; });
+        if (Math.random() < dt * 10) this.game.fx.burst(_v.set(this.pos.x + rand(-1, 1), 0.2, this.pos.z + rand(-1, 1)), { count: 1, color: 0xd8b878, smoke: true, speed: 1.5, life: 0.8, size: 1, sizeEnd: 1.8, alpha: 0.4 });
+        break;
       case 'golem':
         if (p.arms) p.arms.forEach((a, i) => (a.rotation.x = this.attackAnim > 0 ? -2.0 * (this.attackAnim / 0.5) : Math.sin(t * 3 * sp + i * Math.PI) * 0.4));
         body.rotation.z = Math.sin(t * 3 * sp) * 0.06;
@@ -427,7 +532,7 @@ export class Tower {
     const r2 = this.range * this.range;
     let best = null, bd = -1;
     for (const e of g.enemies) {
-      if (!e.alive || (e.flying && !this.def.air)) continue;
+      if (!e.alive || e.hidden || (e.flying && !this.def.air)) continue;
       const dx = e.pos.x - this.pos.x, dz = e.pos.z - this.pos.z;
       if (dx * dx + dz * dz > r2) continue;
       const score = e.dist + (e.boss ? 3 : 0);
@@ -456,6 +561,18 @@ export class Tower {
       if (Math.random() < dt * 4) g.fx.trail(_v.set(this.pos.x + rand(-0.6, 0.6), 1, this.pos.z + rand(-0.6, 0.6)), 0x4ac8ff, 0.6, 1.2, 0, 2);
       return;
     }
+    if (g.time < (this.hexUntil || 0)) {
+      // 被诅咒：停火
+      if (Math.random() < dt * 10) g.fx.trail(_v.set(this.pos.x + rand(-0.7, 0.7), 1.5 + rand(0, 2), this.pos.z + rand(-0.7, 0.7)), 0xd84ab0, 0.7, 0.5, 0.2, 2);
+      if (!this.hexMark) {
+        this.hexMark = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.06, 6, 20), new THREE.MeshBasicMaterial({ color: 0xff4ad8, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+        g.scene.add(this.hexMark);
+      }
+      this.hexMark.position.set(this.pos.x, 4.2 + Math.sin(this.t * 4) * 0.15, this.pos.z);
+      this.hexMark.rotation.set(Math.PI / 2, 0, this.t * 3);
+      return;
+    }
+    if (this.hexMark) { g.scene.remove(this.hexMark); this.hexMark.geometry.dispose(); this.hexMark.material.dispose(); this.hexMark = null; }
     const oc = g.time < (this.overclockUntil || 0);
     const haste = g.towerHasteMul * (oc ? 2 : 1);
     if (oc && Math.random() < dt * 8) g.fx.trail(_v.set(this.pos.x + rand(-0.6, 0.6), 2 + rand(0, 1.5), this.pos.z + rand(-0.6, 0.6)), 0x5cf0ff, 0.6, 0.5, 0, 2.5);
@@ -547,7 +664,7 @@ export class Tower {
           prev = c;
           let nxt = null, nd = 16;
           for (const e of g.enemies) {
-            if (!e.alive || hit.has(e)) continue;
+            if (!e.alive || e.hidden || hit.has(e)) continue;
             const d = e.pos.distanceToSquared(cur.pos);
             if (d < nd) { nd = d; nxt = e; }
           }
@@ -572,7 +689,7 @@ export class Tower {
     }
   }
 
-  destroy() { this.game.scene.remove(this.mesh); }
+  destroy() { this.game.scene.remove(this.mesh); if (this.hexMark) { this.game.scene.remove(this.hexMark); this.hexMark = null; } }
 }
 
 // ---------- 英雄 & 召唤物 ----------
@@ -886,7 +1003,7 @@ export class Unit {
       let blocking = this.blockingCount();
       if (blocking < cap) {
         for (const e of g.enemies) {
-          if (!e.alive || e.flying || e.blockedBy) continue;
+          if (!e.alive || e.hidden || e.flying || e.blockedBy) continue;
           if (e.pos.distanceToSquared(this.pos) < (1.4 + e.def.size * 0.6) ** 2) {
             e.blockedBy = this;
             if (++blocking >= cap) break;
@@ -901,7 +1018,7 @@ export class Unit {
         const guard = this.holdPos ? this.def.range + 0.6 : this.id === 'wolf' ? 7 : this.id === 'golem' || this.id === 'treant' ? 2.5 : 4;
         let bd = guard * guard;
         for (const e of g.enemies) {
-          if (!e.alive || e.flying) continue;
+          if (!e.alive || e.hidden || e.flying) continue;
           const d = e.pos.distanceToSquared(this.anchor);
           if (d < bd) { bd = d; tgt = e; }
         }
